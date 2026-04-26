@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0f1c" />
+    <title>Todo Sync</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <header class="topbar">
+      <div class="brand">
+        <img class="logo" src="/icon.svg" alt="logo" />
+        <div>
+          <div class="brand-title">Todo Sync</div>
+          <div class="brand-sub">Android + Windows 同步代办</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="btnRefresh" class="btn btn-ghost" title="刷新">刷新</button>
+        <button id="btnLogout" class="btn btn-ghost hidden">退出</button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="authCard" class="card">
+        <div class="card-title">登录</div>
+        <div class="card-sub">用同一个账号在安卓和 Windows 登录，就能看到同一份清单。</div>
+        <div class="form">
+          <label class="field">
+            <span>邮箱</span>
+            <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </label>
+          <div class="row">
+            <button id="btnLogin" class="btn btn-primary">登录</button>
+            <button id="btnRegister" class="btn btn-secondary">注册</button>
+          </div>
+          <div id="authMsg" class="msg"></div>
+        </div>
+      </section>
+
+      <section id="appCard" class="card hidden">
+        <div class="card-head">
+          <div>
+            <div class="card-title">代办清单</div>
+            <div id="whoami" class="card-sub"></div>
+          </div>
+          <div class="hint">技巧: 点击标题可展开子任务</div>
+        </div>
+
+        <section class="composer">
+          <label class="field">
+            <span>新代办</span>
+            <input id="newTitle" type="text" placeholder="比如: 完成方案评审" />
+          </label>
+          <label class="field">
+            <span>备注（可选）</span>
+            <input id="newNote" type="text" placeholder="比如: 需要准备 demo + 风险点" />
+          </label>
+          <div class="grid2">
+            <label class="field">
+              <span>紧急程度</span>
+              <select id="newUrgency">
+                <option value="0">不急</option>
+                <option value="1" selected>普通</option>
+                <option value="2">紧急</option>
+                <option value="3">非常紧急</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>完成时间（可选）</span>
+              <input id="newDueAt" type="datetime-local" />
+            </label>
+          </div>
+          <div class="row">
+            <button id="btnAddTodo" class="btn btn-primary">添加</button>
+            <div id="appMsg" class="msg"></div>
+          </div>
+        </section>
+
+        <section class="list">
+          <div id="todoList" class="todos"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="todoTpl">
+      <article class="todo">
+        <div class="todo-main">
+          <label class="check">
+            <input class="todo-done" type="checkbox" />
+            <span class="checkmark"></span>
+          </label>
+          <div class="todo-body">
+            <div class="todo-top">
+              <button class="todo-title" type="button"></button>
+              <span class="badge urgency"></span>
+              <span class="badge due hidden"></span>
+            </div>
+            <div class="todo-note"></div>
+            <div class="todo-meta"></div>
+          </div>
+          <div class="todo-actions">
+            <button class="btn btn-ghost btn-mini todo-del" title="删除">删除</button>
+          </div>
+        </div>
+
+        <div class="subtasks hidden">
+          <div class="sub-head">
+            <div class="sub-title">子任务</div>
+            <div class="sub-actions">
+              <input class="sub-new" type="text" placeholder="添加子任务..." />
+              <button class="btn btn-secondary btn-mini sub-add">添加</button>
+            </div>
+          </div>
+          <div class="sub-list"></div>
+        </div>
+      </article>
+    </template>
+
+    <template id="subTpl">
+      <div class="sub">
+        <label class="check">
+          <input class="sub-done" type="checkbox" />
+          <span class="checkmark"></span>
+        </label>
+        <div class="sub-title"></div>
+        <button class="btn btn-ghost btn-mini sub-del" title="删除">删除</button>
+      </div>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

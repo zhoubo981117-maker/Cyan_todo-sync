@@ -1,0 +1,188 @@
+:root{
+  --bg0:#070a12;
+  --bg1:#0a0f1c;
+  --card:#0f1830cc;
+  --card2:#0b1226cc;
+  --text:#e9eefc;
+  --muted:#aab4d6;
+  --line:#22305b;
+  --shadow: 0 18px 55px rgba(0,0,0,.45);
+  --primary:#58f0c6;
+  --primary2:#3d8cff;
+  --danger:#ff5470;
+  --warn:#ffcb47;
+  --ok:#7ef07a;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color:var(--text);
+  background: radial-gradient(1200px 800px at 15% 10%, rgba(88,240,198,.18), transparent 55%),
+              radial-gradient(900px 700px at 80% 25%, rgba(61,140,255,.18), transparent 55%),
+              linear-gradient(180deg, var(--bg0), var(--bg1));
+  overflow-x:hidden;
+}
+
+.bg{
+  position:fixed; inset:0;
+  background:
+    radial-gradient(600px 350px at 55% 85%, rgba(255,203,71,.08), transparent 60%),
+    radial-gradient(700px 500px at 20% 65%, rgba(255,84,112,.07), transparent 60%);
+  filter: blur(0px);
+  pointer-events:none;
+  z-index:-1;
+}
+
+.topbar{
+  position:sticky; top:0;
+  padding:14px 18px;
+  display:flex; align-items:center; justify-content:space-between;
+  background: linear-gradient(180deg, rgba(7,10,18,.85), rgba(7,10,18,.35));
+  backdrop-filter: blur(10px);
+  border-bottom:1px solid rgba(34,48,91,.5);
+}
+
+.brand{display:flex; align-items:center; gap:10px}
+.logo{width:34px; height:34px}
+.brand-title{font-weight:800; letter-spacing:.2px}
+.brand-sub{font-size:12px; color:var(--muted)}
+
+.wrap{max-width:980px; margin:24px auto; padding:0 16px 60px}
+
+.card{
+  background: linear-gradient(180deg, var(--card), var(--card2));
+  border:1px solid rgba(34,48,91,.8);
+  border-radius:16px;
+  box-shadow: var(--shadow);
+  padding:18px;
+  animation: pop .22s ease-out;
+}
+@keyframes pop{from{transform:translateY(8px);opacity:.0}to{transform:translateY(0);opacity:1}}
+
+.card-head{display:flex; align-items:flex-end; justify-content:space-between; gap:10px}
+.card-title{font-size:18px; font-weight:800}
+.card-sub{font-size:13px; color:var(--muted); margin-top:6px}
+.hint{color:var(--muted); font-size:12px}
+
+.form,.composer{margin-top:14px; display:grid; gap:12px}
+.field{display:grid; gap:6px}
+.field>span{font-size:12px; color:var(--muted)}
+input,select{
+  width:100%;
+  padding:12px 12px;
+  border-radius:12px;
+  border:1px solid rgba(34,48,91,.9);
+  background: rgba(9,13,25,.65);
+  color: var(--text);
+  outline:none;
+}
+input:focus,select:focus{border-color: rgba(88,240,198,.8); box-shadow: 0 0 0 3px rgba(88,240,198,.12)}
+
+.row{display:flex; gap:10px; align-items:center; justify-content:flex-start; flex-wrap:wrap}
+.grid2{display:grid; grid-template-columns: 1fr 1fr; gap:12px}
+@media (max-width:720px){.grid2{grid-template-columns:1fr}}
+
+.btn{
+  border-radius:12px;
+  padding:10px 12px;
+  border:1px solid rgba(34,48,91,.9);
+  background: rgba(10,15,28,.65);
+  color: var(--text);
+  cursor:pointer;
+}
+.btn:hover{transform: translateY(-1px)}
+.btn:active{transform: translateY(0)}
+.btn-primary{
+  border-color: rgba(88,240,198,.55);
+  background: linear-gradient(90deg, rgba(88,240,198,.28), rgba(61,140,255,.22));
+}
+.btn-secondary{
+  border-color: rgba(61,140,255,.55);
+  background: linear-gradient(90deg, rgba(61,140,255,.25), rgba(88,240,198,.12));
+}
+.btn-ghost{background: transparent}
+.btn-mini{padding:7px 10px; border-radius:10px}
+.top-actions{display:flex; gap:8px; align-items:center}
+
+.msg{min-height:16px; font-size:12px; color:var(--muted)}
+.hidden{display:none !important}
+
+.todos{margin-top:14px; display:grid; gap:12px}
+.todo{
+  border:1px solid rgba(34,48,91,.75);
+  border-radius:14px;
+  background: rgba(9,13,25,.45);
+  overflow:hidden;
+}
+.todo-main{display:grid; grid-template-columns: 28px 1fr auto; gap:10px; padding:12px}
+.todo-body{min-width:0}
+.todo-top{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.todo-title{
+  border:0; background:transparent; color:var(--text);
+  font-size:15px; font-weight:800;
+  text-align:left; padding:0;
+  cursor:pointer;
+}
+.todo-note{margin-top:6px; color:var(--muted); font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere}
+.todo-meta{margin-top:8px; color:rgba(170,180,214,.8); font-size:12px}
+.todo-actions{display:flex; align-items:flex-start}
+
+.badge{
+  font-size:12px;
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid rgba(34,48,91,.9);
+  background: rgba(10,15,28,.6);
+  color: var(--muted);
+}
+.badge.urgency.u0{border-color: rgba(126,240,122,.35); color: rgba(126,240,122,.95)}
+.badge.urgency.u1{border-color: rgba(170,180,214,.4); color: rgba(170,180,214,.95)}
+.badge.urgency.u2{border-color: rgba(255,203,71,.5); color: rgba(255,203,71,.95)}
+.badge.urgency.u3{border-color: rgba(255,84,112,.55); color: rgba(255,84,112,.95)}
+.badge.due{border-color: rgba(61,140,255,.55); color: rgba(61,140,255,.95)}
+
+.check{display:flex; align-items:center; justify-content:center; padding-top:2px}
+.check input{display:none}
+.checkmark{
+  width:18px; height:18px; border-radius:6px;
+  border:1px solid rgba(34,48,91,.95);
+  background: rgba(10,15,28,.7);
+  position:relative;
+}
+.check input:checked + .checkmark{
+  border-color: rgba(88,240,198,.7);
+  box-shadow: 0 0 0 3px rgba(88,240,198,.12);
+}
+.check input:checked + .checkmark::after{
+  content:"";
+  position:absolute; left:5px; top:2px;
+  width:5px; height:9px;
+  border:2px solid rgba(88,240,198,.95);
+  border-top:0; border-left:0;
+  transform: rotate(45deg);
+}
+
+.todo.done{opacity:.72}
+.todo.done .todo-title{text-decoration: line-through; color: rgba(233,238,252,.75)}
+
+.subtasks{border-top:1px solid rgba(34,48,91,.65); padding:12px}
+.sub-head{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+.sub-title{font-weight:800; font-size:13px; color:var(--muted)}
+.sub-actions{display:flex; gap:8px; align-items:center; flex:1}
+.sub-new{flex:1; min-width:180px}
+.sub-list{display:grid; gap:8px; margin-top:10px}
+.sub{
+  display:grid; grid-template-columns: 28px 1fr auto;
+  gap:10px;
+  align-items:center;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(34,48,91,.65);
+  background: rgba(9,13,25,.35);
+}
+.sub-title{color:var(--text); font-size:13px}
+.sub.done .sub-title{text-decoration:line-through; color: rgba(233,238,252,.72)}
+

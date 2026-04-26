@@ -1,0 +1,6 @@
+# Replace `todo.example.com` with your real domain, and make sure DNS A/AAAA records point to your server.
+todo.example.com {
+  encode zstd gzip
+  reverse_proxy app:8787
+}
+
