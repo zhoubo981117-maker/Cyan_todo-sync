@@ -4,12 +4,16 @@ const API = {
   async request(path, opts = {}) {
     const token = localStorage.getItem("todo_token");
     const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(path, Object.assign({}, opts, { headers }));
     let data = null;
-    try { data = await res.json(); } catch { data = null; }
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
     if (!res.ok) {
-      const msg = (data && data.error) ? data.error : `HTTP ${res.status}`;
+      const msg = data && data.error ? data.error : `HTTP ${res.status}`;
       throw new Error(msg);
     }
     if (data && data.ok === false) throw new Error(data.error || "error");
@@ -23,6 +27,18 @@ const API = {
   },
   me() {
     return this.request("/api/me", { method: "GET" });
+  },
+  changePassword(currentPassword, newPassword) {
+    return this.request("/api/password/change", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+  resetPassword(newPassword) {
+    return this.request("/api/password/reset", {
+      method: "POST",
+      body: JSON.stringify({ newPassword }),
+    });
   },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
@@ -58,10 +74,24 @@ const els = {
   btnLogout: document.getElementById("btnLogout"),
   btnRefresh: document.getElementById("btnRefresh"),
   whoami: document.getElementById("whoami"),
+  btnToggleChangePassword: document.getElementById("btnToggleChangePassword"),
+  btnToggleResetPassword: document.getElementById("btnToggleResetPassword"),
+  changePasswordPanel: document.getElementById("changePasswordPanel"),
+  resetPasswordPanel: document.getElementById("resetPasswordPanel"),
+  changeCurrentPassword: document.getElementById("changeCurrentPassword"),
+  changeNewPassword: document.getElementById("changeNewPassword"),
+  changeConfirmPassword: document.getElementById("changeConfirmPassword"),
+  btnChangePassword: document.getElementById("btnChangePassword"),
+  resetNewPassword: document.getElementById("resetNewPassword"),
+  resetConfirmPassword: document.getElementById("resetConfirmPassword"),
+  btnResetPassword: document.getElementById("btnResetPassword"),
+  securityMsg: document.getElementById("securityMsg"),
   newTitle: document.getElementById("newTitle"),
   newNote: document.getElementById("newNote"),
   newUrgency: document.getElementById("newUrgency"),
-  newDueAt: document.getElementById("newDueAt"),
+  newDueDate: document.getElementById("newDueDate"),
+  newDueTime: document.getElementById("newDueTime"),
+  dueSummary: document.getElementById("dueSummary"),
   btnAddTodo: document.getElementById("btnAddTodo"),
   appMsg: document.getElementById("appMsg"),
   todoList: document.getElementById("todoList"),
@@ -83,7 +113,6 @@ function urgencyLabel(u) {
 
 function fmtDue(dueAt) {
   if (!dueAt) return "";
-  // ISO string in UTC; show in local time.
   const d = new Date(dueAt);
   if (Number.isNaN(d.getTime())) return String(dueAt);
   const y = d.getFullYear();
@@ -94,15 +123,74 @@ function fmtDue(dueAt) {
   return `${y}-${m}-${day} ${hh}:${mm}`;
 }
 
-function toUtcIsoFromDatetimeLocal(value) {
-  if (!value) return null;
-  // "YYYY-MM-DDTHH:mm" in local time -> UTC ISO
+function dateToInputValue(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function defaultDueLocal() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(18, 30, 0, 0);
+  return d;
+}
+
+function setDueFromDate(date) {
+  els.newDueDate.value = dateToInputValue(date);
+  els.newDueTime.value = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  updateDueSummary();
+}
+
+function applyDuePreset(offsetDays) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const parts = (els.newDueTime.value || "18:30").split(":");
+  d.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+  els.newDueDate.value = dateToInputValue(d);
+  updateDueSummary();
+}
+
+function clearDue() {
+  els.newDueDate.value = "";
+  updateDueSummary();
+}
+
+function updateDueSummary() {
+  if (!els.newDueDate.value) {
+    els.dueSummary.textContent = "未设置完成时间";
+    return;
+  }
+  els.dueSummary.textContent = `计划完成：${els.newDueDate.value} ${els.newDueTime.value}`;
+}
+
+function toUtcIsoFromInputs() {
+  if (!els.newDueDate.value) return null;
+  const value = `${els.newDueDate.value}T${els.newDueTime.value || "18:30"}`;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().replace(".000Z", "+00:00");
+  return d.toISOString().replace(".000Z", "+00:00");
+}
+
+function clearSecurityForms() {
+  els.changeCurrentPassword.value = "";
+  els.changeNewPassword.value = "";
+  els.changeConfirmPassword.value = "";
+  els.resetNewPassword.value = "";
+  els.resetConfirmPassword.value = "";
+}
+
+function togglePanel(panel) {
+  const shouldShow = panel.classList.contains("hidden");
+  els.changePasswordPanel.classList.add("hidden");
+  els.resetPasswordPanel.classList.add("hidden");
+  if (shouldShow) panel.classList.remove("hidden");
+  setMsg(els.securityMsg, "");
 }
 
 async function bootstrap() {
+  initDueDefaults();
   const token = localStorage.getItem("todo_token");
   if (!token) {
     showAuth();
@@ -118,6 +206,13 @@ async function bootstrap() {
   }
 }
 
+function initDueDefaults() {
+  const d = defaultDueLocal();
+  els.newDueDate.value = dateToInputValue(d);
+  els.newDueTime.value = "18:30";
+  updateDueSummary();
+}
+
 function showAuth() {
   els.authCard.classList.remove("hidden");
   els.appCard.classList.add("hidden");
@@ -129,15 +224,16 @@ function showApp(user) {
   els.authCard.classList.add("hidden");
   els.appCard.classList.remove("hidden");
   els.btnLogout.classList.remove("hidden");
-  els.whoami.textContent = `已登录: ${user.email}`;
+  els.whoami.textContent = `已登录：${user.email}`;
   setMsg(els.appMsg, "");
+  setMsg(els.securityMsg, "");
 }
 
 async function refresh() {
   setMsg(els.appMsg, "同步中...");
   const data = await API.listTodos();
   renderTodos(data.todos || []);
-  setMsg(els.appMsg, `已同步: ${new Date().toLocaleTimeString()}`);
+  setMsg(els.appMsg, `已同步：${new Date().toLocaleTimeString()}`);
 }
 
 function renderTodos(todos) {
@@ -175,16 +271,15 @@ function renderTodos(todos) {
     urg.classList.add(`u${t.urgency}`);
 
     if (t.dueAt) {
-      due.textContent = `截止: ${fmtDue(t.dueAt)}`;
+      due.textContent = `截止：${fmtDue(t.dueAt)}`;
       due.classList.remove("hidden");
     }
 
     const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
-    const openSubs = subs.filter(s => !s.done).length;
+    const openSubs = subs.filter((s) => !s.done).length;
     metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个`;
 
-    const toggleSubs = () => subtasksWrap.classList.toggle("hidden");
-    titleBtn.addEventListener("click", toggleSubs);
+    titleBtn.addEventListener("click", () => subtasksWrap.classList.toggle("hidden"));
 
     doneBox.addEventListener("change", async () => {
       try {
@@ -285,17 +380,71 @@ els.btnRegister.addEventListener("click", async () => {
 
 els.btnLogout.addEventListener("click", () => {
   localStorage.removeItem("todo_token");
+  clearSecurityForms();
   showAuth();
 });
 
-els.btnRefresh.addEventListener("click", () => refresh().catch(e => setMsg(els.appMsg, e.message, "error")));
+els.btnRefresh.addEventListener("click", () => refresh().catch((e) => setMsg(els.appMsg, e.message, "error")));
+
+els.btnToggleChangePassword.addEventListener("click", () => togglePanel(els.changePasswordPanel));
+els.btnToggleResetPassword.addEventListener("click", () => togglePanel(els.resetPasswordPanel));
+
+els.btnChangePassword.addEventListener("click", async () => {
+  const currentPassword = els.changeCurrentPassword.value.trim();
+  const newPassword = els.changeNewPassword.value.trim();
+  const confirmPassword = els.changeConfirmPassword.value.trim();
+  if (!currentPassword || !newPassword) {
+    setMsg(els.securityMsg, "请先填写完整密码信息。", "error");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setMsg(els.securityMsg, "两次输入的新密码不一致。", "error");
+    return;
+  }
+  try {
+    await API.changePassword(currentPassword, newPassword);
+    clearSecurityForms();
+    els.changePasswordPanel.classList.add("hidden");
+    setMsg(els.securityMsg, "密码已更新。");
+  } catch (e) {
+    setMsg(els.securityMsg, e.message, "error");
+  }
+});
+
+els.btnResetPassword.addEventListener("click", async () => {
+  const newPassword = els.resetNewPassword.value.trim();
+  const confirmPassword = els.resetConfirmPassword.value.trim();
+  if (!newPassword) {
+    setMsg(els.securityMsg, "请先输入新密码。", "error");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setMsg(els.securityMsg, "两次输入的新密码不一致。", "error");
+    return;
+  }
+  try {
+    await API.resetPassword(newPassword);
+    clearSecurityForms();
+    els.resetPasswordPanel.classList.add("hidden");
+    setMsg(els.securityMsg, "密码已重置。");
+  } catch (e) {
+    setMsg(els.securityMsg, e.message, "error");
+  }
+});
+
+els.newDueDate.addEventListener("change", updateDueSummary);
+els.newDueTime.addEventListener("change", updateDueSummary);
+document.querySelectorAll(".due-preset").forEach((button) => {
+  button.addEventListener("click", () => applyDuePreset(Number(button.dataset.offset || "1")));
+});
+document.querySelector(".due-clear").addEventListener("click", clearDue);
 
 els.btnAddTodo.addEventListener("click", async () => {
   setMsg(els.appMsg, "");
   const title = (els.newTitle.value || "").trim();
   const note = (els.newNote.value || "").trim();
   const urgency = Number(els.newUrgency.value || "1");
-  const dueAt = toUtcIsoFromDatetimeLocal(els.newDueAt.value || "");
+  const dueAt = toUtcIsoFromInputs();
   if (!title) {
     setMsg(els.appMsg, "标题不能为空", "error");
     return;
@@ -305,7 +454,7 @@ els.btnAddTodo.addEventListener("click", async () => {
     els.newTitle.value = "";
     els.newNote.value = "";
     els.newUrgency.value = "1";
-    els.newDueAt.value = "";
+    initDueDefaults();
     await refresh();
   } catch (e) {
     setMsg(els.appMsg, e.message, "error");

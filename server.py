@@ -103,6 +103,21 @@ def password_hash(password: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERS)
 
 
+def validate_password(password: str) -> Optional[str]:
+    if len(password) < 6:
+        return "password too short (>= 6)"
+    return None
+
+
+def update_user_password(user_id: int, new_password: str) -> None:
+    salt = secrets.token_bytes(16)
+    pw_hash = password_hash(new_password, salt)
+    DB.execute(
+        "UPDATE users SET pw_salt = ?, pw_hash = ? WHERE id = ?",
+        (salt, pw_hash, user_id),
+    )
+
+
 def open_db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, isolation_level=None, check_same_thread=False)
@@ -386,6 +401,22 @@ class Handler(BaseHTTPRequestHandler):
         self._set_security_headers()
         self.end_headers()
 
+    def do_HEAD(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            if parsed.path == "/api/health":
+                body = _json_bytes({"ok": True, "time": _utc_now_iso()})
+                self.send_response(200)
+                self._set_cors()
+                self._set_security_headers()
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return
+            self._send_text(405, "Method Not Allowed")
+            return
+        self._handle_static_head(parsed.path)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
@@ -428,6 +459,19 @@ class Handler(BaseHTTPRequestHandler):
             candidate = candidate / "index.html"
         self._send_file(candidate)
 
+    def _handle_static_head(self, path: str) -> None:
+        if path == "/" or path == "":
+            self._send_file_head(WEB_DIR / "index.html")
+            return
+        safe = unquote(path).lstrip("/")
+        candidate = (WEB_DIR / safe).resolve()
+        if not str(candidate).startswith(str(WEB_DIR.resolve())):
+            self._send_text(403, "Forbidden")
+            return
+        if candidate.is_dir():
+            candidate = candidate / "index.html"
+        self._send_file_head(candidate)
+
     def _handle_api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
         try:
             if method == "GET" and path == "/api/health":
@@ -445,8 +489,9 @@ class Handler(BaseHTTPRequestHandler):
                 if "@" not in email or len(email) < 3:
                     self._send_json(*json_error(400, "invalid email"))
                     return
-                if len(password) < 6:
-                    self._send_json(*json_error(400, "password too short (>= 6)"))
+                pw_err = validate_password(password)
+                if pw_err:
+                    self._send_json(*json_error(400, pw_err))
                     return
                 salt = secrets.token_bytes(16)
                 pw_hash = password_hash(password, salt)
@@ -504,6 +549,47 @@ class Handler(BaseHTTPRequestHandler):
 
             if method == "GET" and path == "/api/me":
                 self._send_json(*json_ok({"user": {"id": user.id, "email": user.email}}))
+                return
+
+            if method == "POST" and path == "/api/password/change":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                current_password = str(body.get("currentPassword", ""))
+                new_password = str(body.get("newPassword", ""))
+                pw_err = validate_password(new_password)
+                if pw_err:
+                    self._send_json(*json_error(400, pw_err))
+                    return
+                row = DB.execute(
+                    "SELECT pw_salt, pw_hash FROM users WHERE id = ?",
+                    (user.id,),
+                ).fetchone()
+                if not row:
+                    self._send_json(*json_error(404, "user not found"))
+                    return
+                expected = bytes(row["pw_hash"])
+                current_hash = password_hash(current_password, bytes(row["pw_salt"]))
+                if not hmac.compare_digest(expected, current_hash):
+                    self._send_json(*json_error(401, "current password incorrect"))
+                    return
+                update_user_password(user.id, new_password)
+                self._send_json(*json_ok({"message": "password changed"}))
+                return
+
+            if method == "POST" and path == "/api/password/reset":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                new_password = str(body.get("newPassword", ""))
+                pw_err = validate_password(new_password)
+                if pw_err:
+                    self._send_json(*json_error(400, pw_err))
+                    return
+                update_user_password(user.id, new_password)
+                self._send_json(*json_ok({"message": "password reset"}))
                 return
 
             if method == "GET" and path == "/api/todos":
@@ -988,6 +1074,24 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             # Avoid leaking details to clients; keep it deterministic.
             self._send_json(*json_error(500, "internal error"))
+
+    def _send_file_head(self, path: Path) -> None:
+        if not path.is_file():
+            self._send_text(404, "Not found")
+            return
+        ext = path.suffix.lower()
+        mime = MIME_TYPES.get(ext, "application/octet-stream")
+        size = path.stat().st_size
+        self.send_response(200)
+        self._set_cors()
+        self._set_security_headers()
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(size))
+        if ext in (".html", ".css", ".js", ".webmanifest", ".svg"):
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
 
 
 def main() -> None:

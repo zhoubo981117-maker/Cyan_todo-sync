@@ -42,6 +42,7 @@
             <button id="btnLogin" class="btn btn-primary">登录</button>
             <button id="btnRegister" class="btn btn-secondary">注册</button>
           </div>
+          <div class="auth-tip">忘记当前密码时，可在已登录设备内直接重置密码。</div>
           <div id="authMsg" class="msg"></div>
         </div>
       </section>
@@ -52,17 +53,68 @@
             <div class="card-title">代办清单</div>
             <div id="whoami" class="card-sub"></div>
           </div>
-          <div class="hint">技巧: 点击标题可展开子任务</div>
+          <div class="hint">点击标题可展开子任务</div>
         </div>
+
+        <section class="security">
+          <div class="security-head">
+            <div>
+              <div class="security-title">账号安全</div>
+              <div class="card-sub">修改密码需要校验旧密码；重置密码适合你忘记当前密码，但本设备仍保持登录的场景。</div>
+            </div>
+            <div class="row">
+              <button id="btnToggleChangePassword" class="btn btn-ghost">修改密码</button>
+              <button id="btnToggleResetPassword" class="btn btn-ghost">重置密码</button>
+            </div>
+          </div>
+
+          <div id="changePasswordPanel" class="security-panel hidden">
+            <div class="grid2">
+              <label class="field">
+                <span>当前密码</span>
+                <input id="changeCurrentPassword" type="password" autocomplete="current-password" />
+              </label>
+              <label class="field">
+                <span>新密码</span>
+                <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+              </label>
+            </div>
+            <label class="field">
+              <span>确认新密码</span>
+              <input id="changeConfirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
+            </label>
+            <div class="row">
+              <button id="btnChangePassword" class="btn btn-primary">保存新密码</button>
+            </div>
+          </div>
+
+          <div id="resetPasswordPanel" class="security-panel hidden">
+            <div class="grid2">
+              <label class="field">
+                <span>新密码</span>
+                <input id="resetNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+              </label>
+              <label class="field">
+                <span>确认新密码</span>
+                <input id="resetConfirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
+              </label>
+            </div>
+            <div class="row">
+              <button id="btnResetPassword" class="btn btn-secondary">直接重置</button>
+            </div>
+          </div>
+
+          <div id="securityMsg" class="msg"></div>
+        </section>
 
         <section class="composer">
           <label class="field">
             <span>新代办</span>
-            <input id="newTitle" type="text" placeholder="比如: 完成方案评审" />
+            <input id="newTitle" type="text" placeholder="比如：完成方案评审" />
           </label>
           <label class="field">
             <span>备注（可选）</span>
-            <input id="newNote" type="text" placeholder="比如: 需要准备 demo + 风险点" />
+            <input id="newNote" type="text" placeholder="比如：需要准备 demo 和风险点" />
           </label>
           <div class="grid2">
             <label class="field">
@@ -74,10 +126,33 @@
                 <option value="3">非常紧急</option>
               </select>
             </label>
-            <label class="field">
-              <span>完成时间（可选）</span>
-              <input id="newDueAt" type="datetime-local" />
-            </label>
+            <div class="field">
+              <span>完成时间</span>
+              <div class="due-card">
+                <div id="dueSummary" class="due-summary"></div>
+                <div class="due-presets">
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="0">今天</button>
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="1">明天</button>
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="2">后天</button>
+                  <button class="btn btn-ghost btn-mini due-clear">清空</button>
+                </div>
+                <div class="grid2">
+                  <label class="field">
+                    <span>日期</span>
+                    <input id="newDueDate" type="date" />
+                  </label>
+                  <label class="field">
+                    <span>时间</span>
+                    <select id="newDueTime">
+                      <option value="09:00">09:00</option>
+                      <option value="12:00">12:00</option>
+                      <option value="18:30" selected>18:30</option>
+                      <option value="21:00">21:00</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="row">
             <button id="btnAddTodo" class="btn btn-primary">添加</button>

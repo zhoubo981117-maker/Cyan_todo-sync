@@ -66,6 +66,7 @@ body{
 .card-title{font-size:18px; font-weight:800}
 .card-sub{font-size:13px; color:var(--muted); margin-top:6px}
 .hint{color:var(--muted); font-size:12px}
+.auth-tip{font-size:12px; color:var(--muted)}
 
 .form,.composer{margin-top:14px; display:grid; gap:12px}
 .field{display:grid; gap:6px}
@@ -109,6 +110,41 @@ input:focus,select:focus{border-color: rgba(88,240,198,.8); box-shadow: 0 0 0 3p
 
 .msg{min-height:16px; font-size:12px; color:var(--muted)}
 .hidden{display:none !important}
+
+.security{
+  margin-top:16px;
+  padding:14px;
+  border-radius:14px;
+  border:1px solid rgba(34,48,91,.75);
+  background: rgba(8,12,24,.38);
+}
+.security-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap}
+.security-title{font-size:14px; font-weight:800}
+.security-panel{
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid rgba(34,48,91,.5);
+  display:grid;
+  gap:12px;
+}
+
+.due-card{
+  padding:12px;
+  border-radius:12px;
+  border:1px solid rgba(34,48,91,.75);
+  background: rgba(9,13,25,.4);
+  display:grid;
+  gap:10px;
+}
+.due-summary{
+  font-size:13px;
+  color:var(--text);
+}
+.due-presets{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
 
 .todos{margin-top:14px; display:grid; gap:12px}
 .todo{
@@ -185,4 +221,3 @@ input:focus,select:focus{border-color: rgba(88,240,198,.8); box-shadow: 0 0 0 3p
 }
 .sub-title{color:var(--text); font-size:13px}
 .sub.done .sub-title{text-decoration:line-through; color: rgba(233,238,252,.72)}
-
