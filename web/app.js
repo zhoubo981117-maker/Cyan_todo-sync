@@ -12,10 +12,7 @@ const API = {
     } catch {
       data = null;
     }
-    if (!res.ok) {
-      const msg = data && data.error ? data.error : `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
+    if (!res.ok) throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
     if (data && data.ok === false) throw new Error(data.error || "error");
     return data;
   },
@@ -29,16 +26,10 @@ const API = {
     return this.request("/api/me", { method: "GET" });
   },
   changePassword(currentPassword, newPassword) {
-    return this.request("/api/password/change", {
-      method: "POST",
-      body: JSON.stringify({ currentPassword, newPassword }),
-    });
+    return this.request("/api/password/change", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) });
   },
   resetPassword(newPassword) {
-    return this.request("/api/password/reset", {
-      method: "POST",
-      body: JSON.stringify({ newPassword }),
-    });
+    return this.request("/api/password/reset", { method: "POST", body: JSON.stringify({ newPassword }) });
   },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
@@ -73,7 +64,11 @@ const els = {
   authMsg: document.getElementById("authMsg"),
   btnLogout: document.getElementById("btnLogout"),
   btnRefresh: document.getElementById("btnRefresh"),
+  btnSecurity: document.getElementById("btnSecurity"),
   whoami: document.getElementById("whoami"),
+  taskStats: document.getElementById("taskStats"),
+  securityDialog: document.getElementById("securityDialog"),
+  btnCloseSecurity: document.getElementById("btnCloseSecurity"),
   btnToggleChangePassword: document.getElementById("btnToggleChangePassword"),
   btnToggleResetPassword: document.getElementById("btnToggleResetPassword"),
   changePasswordPanel: document.getElementById("changePasswordPanel"),
@@ -89,6 +84,7 @@ const els = {
   newTitle: document.getElementById("newTitle"),
   newNote: document.getElementById("newNote"),
   newUrgency: document.getElementById("newUrgency"),
+  newRepeatRule: document.getElementById("newRepeatRule"),
   newDueDate: document.getElementById("newDueDate"),
   newDueTime: document.getElementById("newDueTime"),
   dueSummary: document.getElementById("dueSummary"),
@@ -97,6 +93,23 @@ const els = {
   todoList: document.getElementById("todoList"),
   todoTpl: document.getElementById("todoTpl"),
   subTpl: document.getElementById("subTpl"),
+  pomodoroMode: document.getElementById("pomodoroMode"),
+  pomodoroTime: document.getElementById("pomodoroTime"),
+  btnPomodoroStart: document.getElementById("btnPomodoroStart"),
+  btnPomodoroPause: document.getElementById("btnPomodoroPause"),
+  btnPomodoroReset: document.getElementById("btnPomodoroReset"),
+  focusMinutes: document.getElementById("focusMinutes"),
+  breakMinutes: document.getElementById("breakMinutes"),
+};
+
+let currentTodos = [];
+const openTodoIds = new Set();
+
+const pomodoro = {
+  mode: "focus",
+  running: false,
+  remaining: 25 * 60,
+  timer: null,
 };
 
 function setMsg(el, s, kind = "info") {
@@ -109,6 +122,13 @@ function urgencyLabel(u) {
   if (u === 2) return "紧急";
   if (u === 3) return "非常紧急";
   return "普通";
+}
+
+function repeatLabel(rule) {
+  if (rule === "daily") return "每天";
+  if (rule === "weekly") return "每周";
+  if (rule === "monthly") return "每月";
+  return "";
 }
 
 function fmtDue(dueAt) {
@@ -135,12 +155,6 @@ function defaultDueLocal() {
   d.setDate(d.getDate() + 1);
   d.setHours(18, 30, 0, 0);
   return d;
-}
-
-function setDueFromDate(date) {
-  els.newDueDate.value = dateToInputValue(date);
-  els.newDueTime.value = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  updateDueSummary();
 }
 
 function applyDuePreset(offsetDays) {
@@ -173,6 +187,13 @@ function toUtcIsoFromInputs() {
   return d.toISOString().replace(".000Z", "+00:00");
 }
 
+function initDueDefaults() {
+  const d = defaultDueLocal();
+  els.newDueDate.value = dateToInputValue(d);
+  els.newDueTime.value = "18:30";
+  updateDueSummary();
+}
+
 function clearSecurityForms() {
   els.changeCurrentPassword.value = "";
   els.changeNewPassword.value = "";
@@ -181,16 +202,20 @@ function clearSecurityForms() {
   els.resetConfirmPassword.value = "";
 }
 
-function togglePanel(panel) {
-  const shouldShow = panel.classList.contains("hidden");
-  els.changePasswordPanel.classList.add("hidden");
-  els.resetPasswordPanel.classList.add("hidden");
-  if (shouldShow) panel.classList.remove("hidden");
+function showSecurityPanel(kind) {
+  const change = kind === "change";
+  els.changePasswordPanel.classList.toggle("hidden", !change);
+  els.resetPasswordPanel.classList.toggle("hidden", change);
+  els.btnToggleChangePassword.classList.toggle("btn-secondary", change);
+  els.btnToggleChangePassword.classList.toggle("btn-ghost", !change);
+  els.btnToggleResetPassword.classList.toggle("btn-secondary", !change);
+  els.btnToggleResetPassword.classList.toggle("btn-ghost", change);
   setMsg(els.securityMsg, "");
 }
 
 async function bootstrap() {
   initDueDefaults();
+  updatePomodoroDisplay();
   const token = localStorage.getItem("todo_token");
   if (!token) {
     showAuth();
@@ -206,17 +231,11 @@ async function bootstrap() {
   }
 }
 
-function initDueDefaults() {
-  const d = defaultDueLocal();
-  els.newDueDate.value = dateToInputValue(d);
-  els.newDueTime.value = "18:30";
-  updateDueSummary();
-}
-
 function showAuth() {
   els.authCard.classList.remove("hidden");
   els.appCard.classList.add("hidden");
   els.btnLogout.classList.add("hidden");
+  els.btnSecurity.classList.add("hidden");
   setMsg(els.authMsg, "");
 }
 
@@ -224,28 +243,34 @@ function showApp(user) {
   els.authCard.classList.add("hidden");
   els.appCard.classList.remove("hidden");
   els.btnLogout.classList.remove("hidden");
+  els.btnSecurity.classList.remove("hidden");
   els.whoami.textContent = `已登录：${user.email}`;
   setMsg(els.appMsg, "");
-  setMsg(els.securityMsg, "");
 }
 
 async function refresh() {
   setMsg(els.appMsg, "同步中...");
   const data = await API.listTodos();
-  renderTodos(data.todos || []);
+  currentTodos = data.todos || [];
+  renderTodos();
   setMsg(els.appMsg, `已同步：${new Date().toLocaleTimeString()}`);
 }
 
-function renderTodos(todos) {
+function renderTodos() {
   els.todoList.innerHTML = "";
-  if (!todos.length) {
+  const total = currentTodos.length;
+  const doneCount = currentTodos.filter((t) => t.done).length;
+  els.taskStats.textContent = `${doneCount} / ${total}`;
+
+  if (!currentTodos.length) {
     const empty = document.createElement("div");
-    empty.className = "msg";
+    empty.className = "msg empty-state";
     empty.textContent = "还没有代办，先添加一个。";
     els.todoList.appendChild(empty);
     return;
   }
-  for (const t of todos) {
+
+  for (const t of currentTodos) {
     const node = els.todoTpl.content.firstElementChild.cloneNode(true);
     node.dataset.todoId = String(t.id);
 
@@ -254,6 +279,7 @@ function renderTodos(todos) {
     const noteEl = node.querySelector(".todo-note");
     const metaEl = node.querySelector(".todo-meta");
     const urg = node.querySelector(".badge.urgency");
+    const repeat = node.querySelector(".badge.repeat");
     const due = node.querySelector(".badge.due");
     const delBtn = node.querySelector(".todo-del");
     const subtasksWrap = node.querySelector(".subtasks");
@@ -270,6 +296,12 @@ function renderTodos(todos) {
     urg.textContent = urgencyLabel(t.urgency);
     urg.classList.add(`u${t.urgency}`);
 
+    const repeatText = repeatLabel(t.repeatRule);
+    if (repeatText) {
+      repeat.textContent = repeatText;
+      repeat.classList.remove("hidden");
+    }
+
     if (t.dueAt) {
       due.textContent = `截止：${fmtDue(t.dueAt)}`;
       due.classList.remove("hidden");
@@ -279,7 +311,12 @@ function renderTodos(todos) {
     const openSubs = subs.filter((s) => !s.done).length;
     metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个`;
 
-    titleBtn.addEventListener("click", () => subtasksWrap.classList.toggle("hidden"));
+    if (openTodoIds.has(t.id)) subtasksWrap.classList.remove("hidden");
+    titleBtn.addEventListener("click", () => {
+      if (openTodoIds.has(t.id)) openTodoIds.delete(t.id);
+      else openTodoIds.add(t.id);
+      subtasksWrap.classList.toggle("hidden");
+    });
 
     doneBox.addEventListener("change", async () => {
       try {
@@ -295,6 +332,7 @@ function renderTodos(todos) {
       if (!confirm("删除这个代办以及所有子任务？")) return;
       try {
         await API.delTodo(t.id);
+        openTodoIds.delete(t.id);
         await refresh();
       } catch (e) {
         setMsg(els.appMsg, e.message, "error");
@@ -307,6 +345,7 @@ function renderTodos(todos) {
       subNew.value = "";
       try {
         await API.addSub(t.id, title);
+        openTodoIds.add(t.id);
         await refresh();
       } catch (e) {
         setMsg(els.appMsg, e.message, "error");
@@ -328,7 +367,9 @@ function renderTodos(todos) {
       sDone.addEventListener("change", async () => {
         try {
           await API.patchSub(s.id, { done: sDone.checked });
-          await refresh();
+          s.done = sDone.checked;
+          openTodoIds.add(t.id);
+          renderTodos();
         } catch (e) {
           sDone.checked = !sDone.checked;
           setMsg(els.appMsg, e.message, "error");
@@ -338,7 +379,9 @@ function renderTodos(todos) {
         if (!confirm("删除这个子任务？")) return;
         try {
           await API.delSub(s.id);
-          await refresh();
+          t.subtasks = subs.filter((x) => x.id !== s.id);
+          openTodoIds.add(t.id);
+          renderTodos();
         } catch (e) {
           setMsg(els.appMsg, e.message, "error");
         }
@@ -348,6 +391,42 @@ function renderTodos(todos) {
 
     els.todoList.appendChild(node);
   }
+}
+
+function setPomodoroMode(mode) {
+  pomodoro.mode = mode;
+  pomodoro.running = false;
+  clearInterval(pomodoro.timer);
+  pomodoro.timer = null;
+  const minutes = mode === "focus" ? Number(els.focusMinutes.value) : Number(els.breakMinutes.value);
+  pomodoro.remaining = minutes * 60;
+  updatePomodoroDisplay();
+}
+
+function updatePomodoroDisplay() {
+  const minutes = Math.floor(pomodoro.remaining / 60);
+  const seconds = pomodoro.remaining % 60;
+  els.pomodoroTime.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  els.pomodoroMode.textContent = pomodoro.mode === "focus" ? "专注" : "休息";
+}
+
+function startPomodoro() {
+  if (pomodoro.running) return;
+  pomodoro.running = true;
+  pomodoro.timer = setInterval(() => {
+    pomodoro.remaining -= 1;
+    if (pomodoro.remaining <= 0) {
+      setPomodoroMode(pomodoro.mode === "focus" ? "break" : "focus");
+      return;
+    }
+    updatePomodoroDisplay();
+  }, 1000);
+}
+
+function pausePomodoro() {
+  pomodoro.running = false;
+  clearInterval(pomodoro.timer);
+  pomodoro.timer = null;
 }
 
 els.btnLogin.addEventListener("click", async () => {
@@ -381,13 +460,19 @@ els.btnRegister.addEventListener("click", async () => {
 els.btnLogout.addEventListener("click", () => {
   localStorage.removeItem("todo_token");
   clearSecurityForms();
+  currentTodos = [];
+  openTodoIds.clear();
   showAuth();
 });
 
 els.btnRefresh.addEventListener("click", () => refresh().catch((e) => setMsg(els.appMsg, e.message, "error")));
-
-els.btnToggleChangePassword.addEventListener("click", () => togglePanel(els.changePasswordPanel));
-els.btnToggleResetPassword.addEventListener("click", () => togglePanel(els.resetPasswordPanel));
+els.btnSecurity.addEventListener("click", () => {
+  showSecurityPanel("change");
+  els.securityDialog.showModal();
+});
+els.btnCloseSecurity.addEventListener("click", () => els.securityDialog.close());
+els.btnToggleChangePassword.addEventListener("click", () => showSecurityPanel("change"));
+els.btnToggleResetPassword.addEventListener("click", () => showSecurityPanel("reset"));
 
 els.btnChangePassword.addEventListener("click", async () => {
   const currentPassword = els.changeCurrentPassword.value.trim();
@@ -404,7 +489,6 @@ els.btnChangePassword.addEventListener("click", async () => {
   try {
     await API.changePassword(currentPassword, newPassword);
     clearSecurityForms();
-    els.changePasswordPanel.classList.add("hidden");
     setMsg(els.securityMsg, "密码已更新。");
   } catch (e) {
     setMsg(els.securityMsg, e.message, "error");
@@ -425,7 +509,6 @@ els.btnResetPassword.addEventListener("click", async () => {
   try {
     await API.resetPassword(newPassword);
     clearSecurityForms();
-    els.resetPasswordPanel.classList.add("hidden");
     setMsg(els.securityMsg, "密码已重置。");
   } catch (e) {
     setMsg(els.securityMsg, e.message, "error");
@@ -444,21 +527,33 @@ els.btnAddTodo.addEventListener("click", async () => {
   const title = (els.newTitle.value || "").trim();
   const note = (els.newNote.value || "").trim();
   const urgency = Number(els.newUrgency.value || "1");
+  const repeatRule = els.newRepeatRule.value || "none";
   const dueAt = toUtcIsoFromInputs();
   if (!title) {
     setMsg(els.appMsg, "标题不能为空", "error");
     return;
   }
   try {
-    await API.addTodo({ title, note, urgency, dueAt });
+    await API.addTodo({ title, note, urgency, repeatRule, dueAt });
     els.newTitle.value = "";
     els.newNote.value = "";
     els.newUrgency.value = "1";
+    els.newRepeatRule.value = "none";
     initDueDefaults();
     await refresh();
   } catch (e) {
     setMsg(els.appMsg, e.message, "error");
   }
+});
+
+els.btnPomodoroStart.addEventListener("click", startPomodoro);
+els.btnPomodoroPause.addEventListener("click", pausePomodoro);
+els.btnPomodoroReset.addEventListener("click", () => setPomodoroMode(pomodoro.mode));
+els.focusMinutes.addEventListener("change", () => {
+  if (pomodoro.mode === "focus") setPomodoroMode("focus");
+});
+els.breakMinutes.addEventListener("change", () => {
+  if (pomodoro.mode === "break") setPomodoroMode("break");
 });
 
 bootstrap();

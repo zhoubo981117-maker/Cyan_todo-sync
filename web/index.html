@@ -20,13 +20,14 @@
         </div>
       </div>
       <div class="top-actions">
+        <button id="btnSecurity" class="btn btn-ghost hidden">账号安全</button>
         <button id="btnRefresh" class="btn btn-ghost" title="刷新">刷新</button>
         <button id="btnLogout" class="btn btn-ghost hidden">退出</button>
       </div>
     </header>
 
     <main class="wrap">
-      <section id="authCard" class="card">
+      <section id="authCard" class="card auth-card">
         <div class="card-title">登录</div>
         <div class="card-sub">用同一个账号在安卓和 Windows 登录，就能看到同一份清单。</div>
         <div class="form">
@@ -42,88 +43,49 @@
             <button id="btnLogin" class="btn btn-primary">登录</button>
             <button id="btnRegister" class="btn btn-secondary">注册</button>
           </div>
-          <div class="auth-tip">忘记当前密码时，可在已登录设备内直接重置密码。</div>
           <div id="authMsg" class="msg"></div>
         </div>
       </section>
 
-      <section id="appCard" class="card hidden">
-        <div class="card-head">
-          <div>
-            <div class="card-title">代办清单</div>
-            <div id="whoami" class="card-sub"></div>
-          </div>
-          <div class="hint">点击标题可展开子任务</div>
-        </div>
-
-        <section class="security">
-          <div class="security-head">
+      <section id="appCard" class="app-shell hidden">
+        <section class="task-pane">
+          <div class="pane-head">
             <div>
-              <div class="security-title">账号安全</div>
-              <div class="card-sub">修改密码需要校验旧密码；重置密码适合你忘记当前密码，但本设备仍保持登录的场景。</div>
+              <div class="card-title">任务栏</div>
+              <div id="whoami" class="card-sub"></div>
             </div>
-            <div class="row">
-              <button id="btnToggleChangePassword" class="btn btn-ghost">修改密码</button>
-              <button id="btnToggleResetPassword" class="btn btn-ghost">重置密码</button>
-            </div>
+            <div id="taskStats" class="stats-pill">0 / 0</div>
           </div>
-
-          <div id="changePasswordPanel" class="security-panel hidden">
-            <div class="grid2">
-              <label class="field">
-                <span>当前密码</span>
-                <input id="changeCurrentPassword" type="password" autocomplete="current-password" />
-              </label>
-              <label class="field">
-                <span>新密码</span>
-                <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
-              </label>
-            </div>
-            <label class="field">
-              <span>确认新密码</span>
-              <input id="changeConfirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
-            </label>
-            <div class="row">
-              <button id="btnChangePassword" class="btn btn-primary">保存新密码</button>
-            </div>
-          </div>
-
-          <div id="resetPasswordPanel" class="security-panel hidden">
-            <div class="grid2">
-              <label class="field">
-                <span>新密码</span>
-                <input id="resetNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
-              </label>
-              <label class="field">
-                <span>确认新密码</span>
-                <input id="resetConfirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
-              </label>
-            </div>
-            <div class="row">
-              <button id="btnResetPassword" class="btn btn-secondary">直接重置</button>
-            </div>
-          </div>
-
-          <div id="securityMsg" class="msg"></div>
+          <div id="todoList" class="todos"></div>
         </section>
 
-        <section class="composer">
-          <label class="field">
-            <span>新代办</span>
-            <input id="newTitle" type="text" placeholder="比如：完成方案评审" />
-          </label>
-          <label class="field">
-            <span>备注（可选）</span>
-            <input id="newNote" type="text" placeholder="比如：需要准备 demo 和风险点" />
-          </label>
-          <div class="grid2">
+        <aside class="side-pane">
+          <section class="panel composer">
+            <div class="panel-title">新增代办</div>
             <label class="field">
-              <span>紧急程度</span>
+              <span>任务</span>
+              <input id="newTitle" type="text" placeholder="比如：完成方案评审" />
+            </label>
+            <label class="field">
+              <span>备注</span>
+              <input id="newNote" type="text" placeholder="可选" />
+            </label>
+            <label class="field">
+              <span>优先级</span>
               <select id="newUrgency">
                 <option value="0">不急</option>
                 <option value="1" selected>普通</option>
                 <option value="2">紧急</option>
                 <option value="3">非常紧急</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>重复</span>
+              <select id="newRepeatRule">
+                <option value="none" selected>不重复</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
               </select>
             </label>
             <div class="field">
@@ -153,18 +115,92 @@
                 </div>
               </div>
             </div>
-          </div>
-          <div class="row">
-            <button id="btnAddTodo" class="btn btn-primary">添加</button>
-            <div id="appMsg" class="msg"></div>
-          </div>
-        </section>
+            <div class="row">
+              <button id="btnAddTodo" class="btn btn-primary">添加</button>
+              <div id="appMsg" class="msg"></div>
+            </div>
+          </section>
 
-        <section class="list">
-          <div id="todoList" class="todos"></div>
-        </section>
+          <section class="panel pomodoro">
+            <div class="panel-head">
+              <div class="panel-title">番茄钟</div>
+              <div id="pomodoroMode" class="stats-pill">专注</div>
+            </div>
+            <div id="pomodoroTime" class="timer">25:00</div>
+            <div class="pomodoro-controls">
+              <button id="btnPomodoroStart" class="btn btn-primary">开始</button>
+              <button id="btnPomodoroPause" class="btn btn-secondary">暂停</button>
+              <button id="btnPomodoroReset" class="btn btn-ghost">重置</button>
+            </div>
+            <div class="grid2">
+              <label class="field">
+                <span>专注</span>
+                <select id="focusMinutes">
+                  <option value="25" selected>25 分钟</option>
+                  <option value="45">45 分钟</option>
+                  <option value="60">60 分钟</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>休息</span>
+                <select id="breakMinutes">
+                  <option value="5" selected>5 分钟</option>
+                  <option value="10">10 分钟</option>
+                  <option value="15">15 分钟</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </aside>
       </section>
     </main>
+
+    <dialog id="securityDialog" class="dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-head">
+          <div>
+            <div class="card-title">账号安全</div>
+            <div class="card-sub">修改密码需要校验旧密码；重置密码适合本设备仍保持登录的场景。</div>
+          </div>
+          <button id="btnCloseSecurity" class="btn btn-ghost" value="cancel">关闭</button>
+        </div>
+        <div class="security-tabs">
+          <button id="btnToggleChangePassword" class="btn btn-secondary" type="button">修改密码</button>
+          <button id="btnToggleResetPassword" class="btn btn-ghost" type="button">重置密码</button>
+        </div>
+        <div id="changePasswordPanel" class="security-panel">
+          <div class="grid2">
+            <label class="field">
+              <span>当前密码</span>
+              <input id="changeCurrentPassword" type="password" autocomplete="current-password" />
+            </label>
+            <label class="field">
+              <span>新密码</span>
+              <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+          </div>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="changeConfirmPassword" type="password" autocomplete="new-password" />
+          </label>
+          <button id="btnChangePassword" class="btn btn-primary" type="button">保存新密码</button>
+        </div>
+        <div id="resetPasswordPanel" class="security-panel hidden">
+          <div class="grid2">
+            <label class="field">
+              <span>新密码</span>
+              <input id="resetNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+            <label class="field">
+              <span>确认新密码</span>
+              <input id="resetConfirmPassword" type="password" autocomplete="new-password" />
+            </label>
+          </div>
+          <button id="btnResetPassword" class="btn btn-primary" type="button">直接重置</button>
+        </div>
+        <div id="securityMsg" class="msg"></div>
+      </form>
+    </dialog>
 
     <template id="todoTpl">
       <article class="todo">
@@ -177,6 +213,7 @@
             <div class="todo-top">
               <button class="todo-title" type="button"></button>
               <span class="badge urgency"></span>
+              <span class="badge repeat hidden"></span>
               <span class="badge due hidden"></span>
             </div>
             <div class="todo-note"></div>
@@ -186,7 +223,6 @@
             <button class="btn btn-ghost btn-mini todo-del" title="删除">删除</button>
           </div>
         </div>
-
         <div class="subtasks hidden">
           <div class="sub-head">
             <div class="sub-title">子任务</div>

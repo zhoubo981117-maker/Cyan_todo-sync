@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import hmac
 import json
@@ -9,7 +10,7 @@ import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,6 +51,35 @@ def _json_bytes(obj: Any) -> bytes:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _normalize_repeat_rule(value: Any) -> str:
+    rule = str(value or "none").strip().lower()
+    if rule not in ("none", "daily", "weekly", "monthly"):
+        return "none"
+    return rule
+
+
+def _next_due_at(due_at: Optional[str], rule: str) -> Optional[str]:
+    if not due_at or rule == "none":
+        return due_at
+    try:
+        dt = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+    except ValueError:
+        return due_at
+    if rule == "daily":
+        return (dt + timedelta(days=1)).replace(microsecond=0).isoformat()
+    if rule == "weekly":
+        return (dt + timedelta(days=7)).replace(microsecond=0).isoformat()
+    if rule == "monthly":
+        month = dt.month + 1
+        year = dt.year
+        if month > 12:
+            month = 1
+            year += 1
+        day = min(dt.day, calendar.monthrange(year, month)[1])
+        return dt.replace(year=year, month=month, day=day, microsecond=0).isoformat()
+    return due_at
 
 
 def load_or_create_secret() -> bytes:
@@ -143,6 +173,7 @@ def init_db(conn: sqlite3.Connection) -> None:
           title TEXT NOT NULL,
           note TEXT NOT NULL DEFAULT '',
           urgency INTEGER NOT NULL DEFAULT 1,
+          repeat_rule TEXT NOT NULL DEFAULT 'none',
           due_at TEXT NULL,
           done INTEGER NOT NULL DEFAULT 0,
           done_at TEXT NULL,
@@ -186,6 +217,8 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN client_id TEXT NULL")
         if not _column_exists(conn, table, "deleted_at"):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT NULL")
+    if not _column_exists(conn, "todos", "repeat_rule"):
+        conn.execute("ALTER TABLE todos ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT 'none'")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_todos_owner_client_id ON todos(owner_user_id, client_id)"
@@ -595,7 +628,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/todos":
                 rows = DB.execute(
                     """
-                    SELECT id, client_id, title, note, urgency, due_at, done, done_at, created_at, updated_at
+                    SELECT id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, created_at, updated_at
                     FROM todos
                     WHERE owner_user_id = ?
                       AND deleted_at IS NULL
@@ -646,6 +679,7 @@ class Handler(BaseHTTPRequestHandler):
                             "title": r["title"],
                             "note": r["note"],
                             "urgency": int(r["urgency"]),
+                            "repeatRule": r["repeat_rule"],
                             "dueAt": r["due_at"],
                             "done": bool(r["done"]),
                             "doneAt": r["done_at"],
@@ -669,6 +703,7 @@ class Handler(BaseHTTPRequestHandler):
                 note = str(body.get("note", "")).strip()
                 urgency = int(body.get("urgency", 1) or 1)
                 urgency = max(0, min(3, urgency))
+                repeat_rule = _normalize_repeat_rule(body.get("repeatRule"))
                 due_at = body.get("dueAt")
                 if due_at is not None:
                     due_at = str(due_at).strip() or None
@@ -677,10 +712,10 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     cur = DB.execute(
                     """
-                    INSERT INTO todos(owner_user_id, client_id, title, note, urgency, due_at, done, done_at, deleted_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+                    INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
                     """,
-                    (user.id, client_id, title, note, urgency, due_at, now, now),
+                    (user.id, client_id, title, note, urgency, repeat_rule, due_at, now, now),
                     )
                 except sqlite3.IntegrityError:
                     self._send_json(*json_error(409, "clientId already exists"))
@@ -699,11 +734,11 @@ class Handler(BaseHTTPRequestHandler):
                         self._send_json(*json_error(404, "not found"))
                         return
                     todo_id = int(todo_id_str)
-                    exists = DB.execute(
-                        "SELECT 1 FROM todos WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL",
+                    existing_todo = DB.execute(
+                        "SELECT done FROM todos WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL",
                         (todo_id, user.id),
                     ).fetchone()
-                    if not exists:
+                    if not existing_todo:
                         self._send_json(*json_error(404, "not found"))
                         return
 
@@ -730,13 +765,18 @@ class Handler(BaseHTTPRequestHandler):
                                 urgency = max(0, min(3, urgency))
                                 fields.append("urgency = ?")
                                 values.append(urgency)
+                            if "repeatRule" in body:
+                                fields.append("repeat_rule = ?")
+                                values.append(_normalize_repeat_rule(body.get("repeatRule")))
                             if "dueAt" in body:
                                 due_at = body.get("dueAt")
                                 if due_at is not None:
                                     due_at = str(due_at).strip() or None
                                 fields.append("due_at = ?")
                                 values.append(due_at)
-                            if "done" in body:
+                            done_changed = "done" in body
+                            done = False
+                            if done_changed:
                                 done = bool(body.get("done"))
                                 fields.append("done = ?")
                                 values.append(1 if done else 0)
@@ -752,6 +792,8 @@ class Handler(BaseHTTPRequestHandler):
                                 f"UPDATE todos SET {', '.join(fields)} WHERE id = ? AND owner_user_id = ?",
                                 tuple(values),
                             )
+                            if done_changed and done and not bool(existing_todo["done"]):
+                                self._create_next_repeat_todo(user.id, todo_id)
                             self._send_json(*json_ok({}))
                             return
 
@@ -857,7 +899,7 @@ class Handler(BaseHTTPRequestHandler):
                 since = _parse_since(query)
                 rows = DB.execute(
                     """
-                    SELECT id, client_id, title, note, urgency, due_at, done, done_at, deleted_at, created_at, updated_at
+                    SELECT id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at
                     FROM todos
                     WHERE owner_user_id = ?
                       AND (? IS NULL OR updated_at > ?)
@@ -876,6 +918,7 @@ class Handler(BaseHTTPRequestHandler):
                             "title": r["title"],
                             "note": r["note"],
                             "urgency": int(r["urgency"]),
+                            "repeatRule": r["repeat_rule"],
                             "dueAt": r["due_at"],
                             "done": bool(r["done"]),
                             "doneAt": r["done_at"],
@@ -962,6 +1005,7 @@ class Handler(BaseHTTPRequestHandler):
                     note = str(item.get("note", "")).strip()
                     urgency = int(item.get("urgency", 1) or 1)
                     urgency = max(0, min(3, urgency))
+                    repeat_rule = _normalize_repeat_rule(item.get("repeatRule"))
                     due_at = item.get("dueAt")
                     if due_at is not None:
                         due_at = str(due_at).strip() or None
@@ -976,21 +1020,21 @@ class Handler(BaseHTTPRequestHandler):
                         DB.execute(
                             """
                             UPDATE todos
-                            SET title = ?, note = ?, urgency = ?, due_at = ?, done = ?, done_at = ?, deleted_at = NULL, updated_at = ?
+                            SET title = ?, note = ?, urgency = ?, repeat_rule = ?, due_at = ?, done = ?, done_at = ?, deleted_at = NULL, updated_at = ?
                             WHERE owner_user_id = ? AND client_id = ?
                             """,
-                            (title, note, urgency, due_at, 1 if done else 0, done_at, now, user.id, cid),
+                            (title, note, urgency, repeat_rule, due_at, 1 if done else 0, done_at, now, user.id, cid),
                         )
                     else:
                         try:
                             DB.execute(
                                 """
                                 INSERT INTO todos(
-                                  owner_user_id, client_id, title, note, urgency, due_at,
+                                  owner_user_id, client_id, title, note, urgency, repeat_rule, due_at,
                                   done, done_at, deleted_at, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                                 """,
-                                (user.id, cid, title, note, urgency, due_at, 1 if done else 0, done_at, now, now),
+                                (user.id, cid, title, note, urgency, repeat_rule, due_at, 1 if done else 0, done_at, now, now),
                             )
                         except sqlite3.IntegrityError:
                             # Client IDs are per user; ignore duplicates in race.
@@ -1074,6 +1118,58 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             # Avoid leaking details to clients; keep it deterministic.
             self._send_json(*json_error(500, "internal error"))
+
+    def _create_next_repeat_todo(self, user_id: int, todo_id: int) -> None:
+        row = DB.execute(
+            """
+            SELECT title, note, urgency, repeat_rule, due_at
+            FROM todos
+            WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL
+            """,
+            (todo_id, user_id),
+        ).fetchone()
+        if not row:
+            return
+        repeat_rule = _normalize_repeat_rule(row["repeat_rule"])
+        if repeat_rule == "none":
+            return
+        next_due = _next_due_at(row["due_at"], repeat_rule)
+        now = _utc_now_iso()
+        cur = DB.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+            """,
+            (
+                user_id,
+                secrets.token_urlsafe(18),
+                row["title"],
+                row["note"],
+                int(row["urgency"]),
+                repeat_rule,
+                next_due,
+                now,
+                now,
+            ),
+        )
+        new_todo_id = int(cur.lastrowid)
+        subtasks = DB.execute(
+            """
+            SELECT title
+            FROM subtasks
+            WHERE owner_user_id = ? AND todo_id = ? AND deleted_at IS NULL
+            ORDER BY id ASC
+            """,
+            (user_id, todo_id),
+        ).fetchall()
+        for subtask in subtasks:
+            DB.execute(
+                """
+                INSERT INTO subtasks(owner_user_id, client_id, todo_id, title, done, done_at, deleted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+                """,
+                (user_id, secrets.token_urlsafe(18), new_todo_id, subtask["title"], now, now),
+            )
 
     def _send_file_head(self, path: Path) -> None:
         if not path.is_file():
