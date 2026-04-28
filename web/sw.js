@@ -1,4 +1,4 @@
-const CACHE = "todo-sync-v1";
+const CACHE = "todo-sync-v2";
 const ASSETS = [
   "/",
   "/index.html",
@@ -26,14 +26,14 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.pathname.startsWith("/api/")) return; // never cache API
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((resp) => {
+    fetch(event.request).then((resp) => {
+      if (event.request.method === "GET" && resp.ok) {
         const copy = resp.clone();
         caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
-        return resp;
-      }).catch(() => caches.match("/"));
+      }
+      return resp;
+    }).catch(() => {
+      return caches.match(event.request).then((cached) => cached || caches.match("/"));
     })
   );
 });
-

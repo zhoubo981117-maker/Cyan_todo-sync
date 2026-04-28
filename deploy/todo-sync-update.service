@@ -1,0 +1,11 @@
+[Unit]
+Description=Update Todo Sync from GitHub
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=APP_DIR=/opt/Cyan_todo-sync
+Environment=BRANCH=main
+Environment=SERVICE=todo-sync
+ExecStart=/opt/Cyan_todo-sync/deploy/update-from-github.sh

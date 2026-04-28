@@ -37,6 +37,27 @@ docker compose up -d --build
 
 Then open `https://todo.example.com/` on Windows and Android.
 
+## Server Auto Update
+
+On the server, enable a systemd timer that checks GitHub every minute and restarts the app when `origin/main` changes:
+
+```bash
+cd /opt/Cyan_todo-sync
+git pull
+chmod +x deploy/update-from-github.sh
+cp deploy/todo-sync-update.service /etc/systemd/system/todo-sync-update.service
+cp deploy/todo-sync-update.timer /etc/systemd/system/todo-sync-update.timer
+systemctl daemon-reload
+systemctl enable --now todo-sync-update.timer
+```
+
+Useful checks:
+
+```bash
+systemctl list-timers todo-sync-update.timer
+journalctl -u todo-sync-update.service -n 100 --no-pager
+```
+
 ## Public Internet (No Domain, IP Testing)
 
 If you don't have a domain yet, you can temporarily expose the app on `http://<server-ip>:8787/`:
