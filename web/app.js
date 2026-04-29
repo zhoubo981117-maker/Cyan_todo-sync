@@ -721,6 +721,11 @@ els.btnAddTodo.addEventListener("click", async () => {
     setMsg(els.appMsg, e.message, "error");
   }
 });
+els.newTitle.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter" || ev.isComposing) return;
+  ev.preventDefault();
+  els.btnAddTodo.click();
+});
 
 els.btnPomodoroStart.addEventListener("click", startPomodoro);
 els.btnPomodoroPause.addEventListener("click", pausePomodoro);
