@@ -13,8 +13,10 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 current="$(git rev-parse HEAD)"
+echo "Current local commit: $current"
 git fetch origin "$BRANCH"
 remote="$(git rev-parse "origin/$BRANCH")"
+echo "Current remote commit: $remote"
 
 if [ "$current" = "$remote" ]; then
   echo "Already up to date: $current"
@@ -22,10 +24,14 @@ if [ "$current" = "$remote" ]; then
 fi
 
 git merge --ff-only "origin/$BRANCH"
+new_current="$(git rev-parse HEAD)"
+echo "Merged $current -> $new_current"
 systemctl restart "$SERVICE"
+echo "Restarted service: $SERVICE"
 
 if systemctl is-active --quiet caddy; then
   systemctl reload caddy
+  echo "Reloaded caddy"
 fi
 
 echo "Updated $APP_DIR from $current to $remote and restarted $SERVICE."

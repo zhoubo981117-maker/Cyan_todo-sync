@@ -7,10 +7,13 @@ import hmac
 import json
 import os
 import secrets
+import smtplib
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +36,7 @@ ALLOWED_ORIGINS = [
 ]
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+RESET_TOKEN_TTL_SECONDS = 60 * 30  # 30 minutes
 PBKDF2_ITERS = 200_000
 
 
@@ -53,11 +57,47 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _git_version() -> dict[str, str]:
+    env_version = os.environ.get("TODO_APP_VERSION", "").strip()
+    if env_version:
+        return {"commit": env_version[:40], "short": env_version[:7], "source": "env"}
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+    except Exception:
+        commit = "unknown"
+    return {
+        "commit": commit,
+        "short": commit[:7] if commit != "unknown" else "unknown",
+        "source": "git" if commit != "unknown" else "unknown",
+    }
+
+
+APP_VERSION = _git_version()
+
+
 def _normalize_repeat_rule(value: Any) -> str:
     rule = str(value or "none").strip().lower()
     if rule not in ("none", "daily", "weekly", "monthly"):
         return "none"
     return rule
+
+
+def _normalize_reminder_minutes(value: Any) -> Optional[int]:
+    if value in (None, "", "none"):
+        return None
+    if value == "at_due":
+        return 0
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        return None
+    return minutes if minutes in (0, 10, 30, 60) else None
 
 
 def _next_due_at(due_at: Optional[str], rule: str) -> Optional[str]:
@@ -148,6 +188,41 @@ def update_user_password(user_id: int, new_password: str) -> None:
     )
 
 
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _send_reset_email(email: str, reset_url: str, code: str) -> bool:
+    host = os.environ.get("TODO_SMTP_HOST", "").strip()
+    user = os.environ.get("TODO_SMTP_USER", "").strip()
+    password = os.environ.get("TODO_SMTP_PASSWORD", "").strip()
+    sender = os.environ.get("TODO_SMTP_FROM", user).strip()
+    if not host or not user or not password or not sender:
+        print(f"[password-reset] SMTP not configured. email={email} code={code} url={reset_url}", flush=True)
+        return False
+
+    port = int(os.environ.get("TODO_SMTP_PORT", "465"))
+    msg = EmailMessage()
+    msg["Subject"] = "Todo Sync 密码重置"
+    msg["From"] = sender
+    msg["To"] = email
+    msg.set_content(
+        f"你的 Todo Sync 密码重置验证码是：{code}\n\n"
+        f"也可以打开这个链接完成重置：\n{reset_url}\n\n"
+        "验证码 30 分钟内有效。如果不是你本人操作，可以忽略这封邮件。"
+    )
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=10) as smtp:
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            smtp.starttls()
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    return True
+
+
 def open_db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, isolation_level=None, check_same_thread=False)
@@ -174,6 +249,7 @@ def init_db(conn: sqlite3.Connection) -> None:
           note TEXT NOT NULL DEFAULT '',
           urgency INTEGER NOT NULL DEFAULT 1,
           repeat_rule TEXT NOT NULL DEFAULT 'none',
+          reminder_minutes INTEGER NULL,
           due_at TEXT NULL,
           done INTEGER NOT NULL DEFAULT 0,
           done_at TEXT NULL,
@@ -193,6 +269,17 @@ def init_db(conn: sqlite3.Connection) -> None:
           updated_at TEXT NOT NULL,
           FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
           FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          code TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          used_at TEXT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS idx_todos_owner_updated ON todos(owner_user_id, updated_at DESC);
@@ -219,6 +306,8 @@ def migrate_db(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT NULL")
     if not _column_exists(conn, "todos", "repeat_rule"):
         conn.execute("ALTER TABLE todos ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT 'none'")
+    if not _column_exists(conn, "todos", "reminder_minutes"):
+        conn.execute("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER NULL")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_todos_owner_client_id ON todos(owner_user_id, client_id)"
@@ -409,6 +498,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _send_service_worker(self, path: Path) -> None:
+        if not path.is_file():
+            self._send_text(404, "Not found")
+            return
+        body = path.read_text(encoding="utf-8").replace("__APP_VERSION__", APP_VERSION["short"])
+        raw = body.encode("utf-8")
+        self.send_response(200)
+        self._set_cors()
+        self._set_security_headers()
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(raw)
+
     def _send_file(self, path: Path) -> None:
         if not path.is_file():
             self._send_text(404, "Not found")
@@ -490,6 +594,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if candidate.is_dir():
             candidate = candidate / "index.html"
+        if candidate.name == "sw.js":
+            self._send_service_worker(candidate)
+            return
         self._send_file(candidate)
 
     def _handle_static_head(self, path: str) -> None:
@@ -508,7 +615,12 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
         try:
             if method == "GET" and path == "/api/health":
-                code, obj = json_ok({"time": _utc_now_iso()})
+                code, obj = json_ok({"time": _utc_now_iso(), "version": APP_VERSION})
+                self._send_json(code, obj)
+                return
+
+            if method == "GET" and path == "/api/version":
+                code, obj = json_ok({"time": _utc_now_iso(), "version": APP_VERSION})
                 self._send_json(code, obj)
                 return
 
@@ -575,6 +687,82 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(*json_ok({"token": token, "user": {"id": user_id, "email": email}}))
                 return
 
+            if method == "POST" and path == "/api/password/forgot":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                email = normalize_email(str(body.get("email", "")))
+                row = DB.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+                if row:
+                    token = secrets.token_urlsafe(32)
+                    code = f"{secrets.randbelow(1_000_000):06d}"
+                    now = _utc_now_iso()
+                    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=RESET_TOKEN_TTL_SECONDS)).replace(microsecond=0).isoformat()
+                    DB.execute(
+                        """
+                        INSERT INTO password_reset_tokens(user_id, token_hash, code, expires_at, used_at, created_at)
+                        VALUES (?, ?, ?, ?, NULL, ?)
+                        """,
+                        (int(row["id"]), _hash_reset_token(token), code, expires_at, now),
+                    )
+                    proto = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+                    host = self.headers.get("Host", "")
+                    reset_url = f"{proto}://{host}/?resetToken={token}&email={email}" if host else token
+                    sent = _send_reset_email(email, reset_url, code)
+                    self._send_json(*json_ok({"sent": sent, "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
+                    return
+                # Do not reveal whether the account exists.
+                self._send_json(*json_ok({"sent": False, "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
+                return
+
+            if method == "POST" and path == "/api/password/forgot/confirm":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                email = normalize_email(str(body.get("email", "")))
+                token = str(body.get("token", "")).strip()
+                code = str(body.get("code", "")).strip()
+                new_password = str(body.get("newPassword", ""))
+                pw_err = validate_password(new_password)
+                if pw_err:
+                    self._send_json(*json_error(400, pw_err))
+                    return
+                user_row = DB.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+                if not user_row:
+                    self._send_json(*json_error(400, "invalid or expired reset token"))
+                    return
+                token_hash = _hash_reset_token(token) if token else ""
+                row = DB.execute(
+                    """
+                    SELECT id, user_id, expires_at
+                    FROM password_reset_tokens
+                    WHERE user_id = ?
+                      AND used_at IS NULL
+                      AND (token_hash = ? OR code = ?)
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (int(user_row["id"]), token_hash, code),
+                ).fetchone()
+                if not row:
+                    self._send_json(*json_error(400, "invalid or expired reset token"))
+                    return
+                try:
+                    expires = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+                except ValueError:
+                    self._send_json(*json_error(400, "invalid or expired reset token"))
+                    return
+                if datetime.now(timezone.utc) > expires:
+                    self._send_json(*json_error(400, "invalid or expired reset token"))
+                    return
+                update_user_password(int(row["user_id"]), new_password)
+                now = _utc_now_iso()
+                DB.execute("UPDATE password_reset_tokens SET used_at = ? WHERE id = ?", (now, int(row["id"])))
+                self._send_json(*json_ok({}))
+                return
+
             user = require_user(self)
             if not user:
                 self._send_json(*json_error(401, "unauthorized"))
@@ -628,7 +816,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/todos":
                 rows = DB.execute(
                     """
-                    SELECT id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, created_at, updated_at
+                    SELECT id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, created_at, updated_at
                     FROM todos
                     WHERE owner_user_id = ?
                       AND deleted_at IS NULL
@@ -680,6 +868,7 @@ class Handler(BaseHTTPRequestHandler):
                             "note": r["note"],
                             "urgency": int(r["urgency"]),
                             "repeatRule": r["repeat_rule"],
+                            "reminderMinutes": r["reminder_minutes"],
                             "dueAt": r["due_at"],
                             "done": bool(r["done"]),
                             "doneAt": r["done_at"],
@@ -704,6 +893,7 @@ class Handler(BaseHTTPRequestHandler):
                 urgency = int(body.get("urgency", 1) or 1)
                 urgency = max(0, min(3, urgency))
                 repeat_rule = _normalize_repeat_rule(body.get("repeatRule"))
+                reminder_minutes = _normalize_reminder_minutes(body.get("reminderMinutes"))
                 due_at = body.get("dueAt")
                 if due_at is not None:
                     due_at = str(due_at).strip() or None
@@ -712,10 +902,10 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     cur = DB.execute(
                     """
-                    INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+                    INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
                     """,
-                    (user.id, client_id, title, note, urgency, repeat_rule, due_at, now, now),
+                    (user.id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, now, now),
                     )
                 except sqlite3.IntegrityError:
                     self._send_json(*json_error(409, "clientId already exists"))
@@ -768,6 +958,9 @@ class Handler(BaseHTTPRequestHandler):
                             if "repeatRule" in body:
                                 fields.append("repeat_rule = ?")
                                 values.append(_normalize_repeat_rule(body.get("repeatRule")))
+                            if "reminderMinutes" in body:
+                                fields.append("reminder_minutes = ?")
+                                values.append(_normalize_reminder_minutes(body.get("reminderMinutes")))
                             if "dueAt" in body:
                                 due_at = body.get("dueAt")
                                 if due_at is not None:
@@ -899,7 +1092,7 @@ class Handler(BaseHTTPRequestHandler):
                 since = _parse_since(query)
                 rows = DB.execute(
                     """
-                    SELECT id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at
+                    SELECT id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at
                     FROM todos
                     WHERE owner_user_id = ?
                       AND (? IS NULL OR updated_at > ?)
@@ -919,6 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
                             "note": r["note"],
                             "urgency": int(r["urgency"]),
                             "repeatRule": r["repeat_rule"],
+                            "reminderMinutes": r["reminder_minutes"],
                             "dueAt": r["due_at"],
                             "done": bool(r["done"]),
                             "doneAt": r["done_at"],
@@ -1006,6 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
                     urgency = int(item.get("urgency", 1) or 1)
                     urgency = max(0, min(3, urgency))
                     repeat_rule = _normalize_repeat_rule(item.get("repeatRule"))
+                    reminder_minutes = _normalize_reminder_minutes(item.get("reminderMinutes"))
                     due_at = item.get("dueAt")
                     if due_at is not None:
                         due_at = str(due_at).strip() or None
@@ -1020,21 +1215,21 @@ class Handler(BaseHTTPRequestHandler):
                         DB.execute(
                             """
                             UPDATE todos
-                            SET title = ?, note = ?, urgency = ?, repeat_rule = ?, due_at = ?, done = ?, done_at = ?, deleted_at = NULL, updated_at = ?
+                            SET title = ?, note = ?, urgency = ?, repeat_rule = ?, reminder_minutes = ?, due_at = ?, done = ?, done_at = ?, deleted_at = NULL, updated_at = ?
                             WHERE owner_user_id = ? AND client_id = ?
                             """,
-                            (title, note, urgency, repeat_rule, due_at, 1 if done else 0, done_at, now, user.id, cid),
+                            (title, note, urgency, repeat_rule, reminder_minutes, due_at, 1 if done else 0, done_at, now, user.id, cid),
                         )
                     else:
                         try:
                             DB.execute(
                                 """
                                 INSERT INTO todos(
-                                  owner_user_id, client_id, title, note, urgency, repeat_rule, due_at,
+                                  owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at,
                                   done, done_at, deleted_at, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                                 """,
-                                (user.id, cid, title, note, urgency, repeat_rule, due_at, 1 if done else 0, done_at, now, now),
+                                (user.id, cid, title, note, urgency, repeat_rule, reminder_minutes, due_at, 1 if done else 0, done_at, now, now),
                             )
                         except sqlite3.IntegrityError:
                             # Client IDs are per user; ignore duplicates in race.
@@ -1122,7 +1317,7 @@ class Handler(BaseHTTPRequestHandler):
     def _create_next_repeat_todo(self, user_id: int, todo_id: int) -> None:
         row = DB.execute(
             """
-            SELECT title, note, urgency, repeat_rule, due_at
+            SELECT title, note, urgency, repeat_rule, reminder_minutes, due_at
             FROM todos
             WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL
             """,
@@ -1137,8 +1332,8 @@ class Handler(BaseHTTPRequestHandler):
         now = _utc_now_iso()
         cur = DB.execute(
             """
-            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, due_at, done, done_at, deleted_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
             """,
             (
                 user_id,
@@ -1147,6 +1342,7 @@ class Handler(BaseHTTPRequestHandler):
                 row["note"],
                 int(row["urgency"]),
                 repeat_rule,
+                row["reminder_minutes"],
                 next_due,
                 now,
                 now,

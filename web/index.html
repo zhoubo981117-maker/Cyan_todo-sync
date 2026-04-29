@@ -39,23 +39,69 @@
             <span>密码</span>
             <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" />
           </label>
-          <div class="row">
-            <button id="btnLogin" class="btn btn-primary">登录</button>
-            <button id="btnRegister" class="btn btn-secondary">注册</button>
-          </div>
+        <div class="row">
+          <button id="btnLogin" class="btn btn-primary">登录</button>
+          <button id="btnRegister" class="btn btn-secondary">注册</button>
+          <button id="btnForgotPasswordOpen" class="btn btn-ghost" type="button">忘记密码</button>
+        </div>
           <div id="authMsg" class="msg"></div>
         </div>
       </section>
 
       <section id="appCard" class="app-shell hidden">
         <section class="task-pane">
+          <section class="pomodoro-strip">
+            <div>
+              <div class="panel-title">番茄钟</div>
+              <div class="card-sub">放在任务栏上方，启动后可切换专注/休息。</div>
+            </div>
+            <div id="pomodoroMode" class="stats-pill">专注</div>
+            <div id="pomodoroTime" class="timer">25:00</div>
+            <div class="pomodoro-controls">
+              <button id="btnPomodoroStart" class="btn btn-primary">开始</button>
+              <button id="btnPomodoroPause" class="btn btn-secondary">暂停</button>
+              <button id="btnPomodoroReset" class="btn btn-ghost">重置</button>
+            </div>
+            <div class="pomodoro-selects">
+              <label class="field">
+                <span>专注</span>
+                <select id="focusMinutes">
+                  <option value="25" selected>25 分钟</option>
+                  <option value="45">45 分钟</option>
+                  <option value="60">60 分钟</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>休息</span>
+                <select id="breakMinutes">
+                  <option value="5" selected>5 分钟</option>
+                  <option value="10">10 分钟</option>
+                  <option value="15">15 分钟</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
           <div class="pane-head">
             <div>
               <div class="card-title">任务栏</div>
               <div id="whoami" class="card-sub"></div>
             </div>
-            <div id="taskStats" class="stats-pill">0 / 0</div>
+            <div class="pane-actions">
+              <div id="taskStats" class="stats-pill">0 / 0</div>
+              <div id="versionInfo" class="stats-pill">版本：检测中</div>
+            </div>
           </div>
+          <section class="calendar-panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-title">日历视图</div>
+                <div class="card-sub">按完成日期查看任务，本周/本月计划会更直观。</div>
+              </div>
+              <div id="calendarMonth" class="stats-pill"></div>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
           <div id="todoList" class="todos"></div>
         </section>
 
@@ -86,6 +132,16 @@
                 <option value="daily">每天</option>
                 <option value="weekly">每周</option>
                 <option value="monthly">每月</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>提醒</span>
+              <select id="newReminder">
+                <option value="none" selected>不提醒</option>
+                <option value="at_due">到点提醒</option>
+                <option value="10">提前 10 分钟</option>
+                <option value="30">提前 30 分钟</option>
+                <option value="60">提前 1 小时</option>
               </select>
             </label>
             <div class="field">
@@ -120,35 +176,12 @@
               <div id="appMsg" class="msg"></div>
             </div>
           </section>
-
-          <section class="panel pomodoro">
-            <div class="panel-head">
-              <div class="panel-title">番茄钟</div>
-              <div id="pomodoroMode" class="stats-pill">专注</div>
-            </div>
-            <div id="pomodoroTime" class="timer">25:00</div>
-            <div class="pomodoro-controls">
-              <button id="btnPomodoroStart" class="btn btn-primary">开始</button>
-              <button id="btnPomodoroPause" class="btn btn-secondary">暂停</button>
-              <button id="btnPomodoroReset" class="btn btn-ghost">重置</button>
-            </div>
-            <div class="grid2">
-              <label class="field">
-                <span>专注</span>
-                <select id="focusMinutes">
-                  <option value="25" selected>25 分钟</option>
-                  <option value="45">45 分钟</option>
-                  <option value="60">60 分钟</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>休息</span>
-                <select id="breakMinutes">
-                  <option value="5" selected>5 分钟</option>
-                  <option value="10">10 分钟</option>
-                  <option value="15">15 分钟</option>
-                </select>
-              </label>
+          <section class="panel notification-panel">
+            <div class="panel-title">提醒通知</div>
+            <div class="card-sub">浏览器允许通知后，页面打开期间会按完成时间提醒。</div>
+            <div class="row">
+              <button id="btnEnableNotifications" class="btn btn-secondary" type="button">开启通知</button>
+              <div id="notificationStatus" class="msg">未开启</div>
             </div>
           </section>
         </aside>
@@ -199,6 +232,47 @@
           <button id="btnResetPassword" class="btn btn-primary" type="button">直接重置</button>
         </div>
         <div id="securityMsg" class="msg"></div>
+      </form>
+    </dialog>
+
+    <dialog id="forgotDialog" class="dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-head">
+          <div>
+            <div class="card-title">忘记密码</div>
+            <div class="card-sub">输入邮箱获取验证码或重置链接，再设置新密码。</div>
+          </div>
+          <button id="btnCloseForgot" class="btn btn-ghost" value="cancel">关闭</button>
+        </div>
+        <label class="field">
+          <span>邮箱</span>
+          <input id="forgotEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+        </label>
+        <div class="row">
+          <button id="btnRequestReset" class="btn btn-secondary" type="button">发送验证码/链接</button>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span>验证码</span>
+            <input id="forgotCode" type="text" inputmode="numeric" placeholder="邮箱验证码" />
+          </label>
+          <label class="field">
+            <span>重置链接 Token</span>
+            <input id="forgotToken" type="text" placeholder="打开重置链接会自动填入" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span>新密码</span>
+            <input id="forgotNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+          </label>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="forgotConfirmPassword" type="password" autocomplete="new-password" />
+          </label>
+        </div>
+        <button id="btnConfirmForgotReset" class="btn btn-primary" type="button">重置密码</button>
+        <div id="forgotMsg" class="msg"></div>
       </form>
     </dialog>
 

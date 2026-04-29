@@ -56,6 +56,27 @@ Useful checks:
 ```bash
 systemctl list-timers todo-sync-update.timer
 journalctl -u todo-sync-update.service -n 100 --no-pager
+curl http://127.0.0.1:8787/api/version
+```
+
+`/api/version` returns the Git commit currently running on the server. The web page also shows the short commit in the task header, which makes it easier to verify whether the server has deployed the latest GitHub version.
+
+## Password Reset Email
+
+Forgot-password reset links work out of the box at the API level. For real email delivery, configure SMTP environment variables for the `todo-sync` service:
+
+```bash
+TODO_SMTP_HOST=smtp.example.com
+TODO_SMTP_PORT=465
+TODO_SMTP_USER=todo@example.com
+TODO_SMTP_PASSWORD=your-smtp-password
+TODO_SMTP_FROM=todo@example.com
+```
+
+If SMTP is not configured, the reset code and link are written to the server journal for personal testing:
+
+```bash
+journalctl -u todo-sync -n 80 --no-pager
 ```
 
 ## Public Internet (No Domain, IP Testing)

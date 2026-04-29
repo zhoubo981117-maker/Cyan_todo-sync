@@ -31,6 +31,18 @@ const API = {
   resetPassword(newPassword) {
     return this.request("/api/password/reset", { method: "POST", body: JSON.stringify({ newPassword }) });
   },
+  requestPasswordReset(email) {
+    return this.request("/api/password/forgot", { method: "POST", body: JSON.stringify({ email }) });
+  },
+  confirmPasswordReset(email, token, code, newPassword) {
+    return this.request("/api/password/forgot/confirm", {
+      method: "POST",
+      body: JSON.stringify({ email, token, code, newPassword }),
+    });
+  },
+  version() {
+    return this.request("/api/version", { method: "GET" });
+  },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
   },
@@ -61,12 +73,16 @@ const els = {
   authPassword: document.getElementById("authPassword"),
   btnLogin: document.getElementById("btnLogin"),
   btnRegister: document.getElementById("btnRegister"),
+  btnForgotPasswordOpen: document.getElementById("btnForgotPasswordOpen"),
   authMsg: document.getElementById("authMsg"),
   btnLogout: document.getElementById("btnLogout"),
   btnRefresh: document.getElementById("btnRefresh"),
   btnSecurity: document.getElementById("btnSecurity"),
   whoami: document.getElementById("whoami"),
   taskStats: document.getElementById("taskStats"),
+  versionInfo: document.getElementById("versionInfo"),
+  calendarMonth: document.getElementById("calendarMonth"),
+  calendarGrid: document.getElementById("calendarGrid"),
   securityDialog: document.getElementById("securityDialog"),
   btnCloseSecurity: document.getElementById("btnCloseSecurity"),
   btnToggleChangePassword: document.getElementById("btnToggleChangePassword"),
@@ -81,10 +97,21 @@ const els = {
   resetConfirmPassword: document.getElementById("resetConfirmPassword"),
   btnResetPassword: document.getElementById("btnResetPassword"),
   securityMsg: document.getElementById("securityMsg"),
+  forgotDialog: document.getElementById("forgotDialog"),
+  btnCloseForgot: document.getElementById("btnCloseForgot"),
+  forgotEmail: document.getElementById("forgotEmail"),
+  forgotCode: document.getElementById("forgotCode"),
+  forgotToken: document.getElementById("forgotToken"),
+  forgotNewPassword: document.getElementById("forgotNewPassword"),
+  forgotConfirmPassword: document.getElementById("forgotConfirmPassword"),
+  btnRequestReset: document.getElementById("btnRequestReset"),
+  btnConfirmForgotReset: document.getElementById("btnConfirmForgotReset"),
+  forgotMsg: document.getElementById("forgotMsg"),
   newTitle: document.getElementById("newTitle"),
   newNote: document.getElementById("newNote"),
   newUrgency: document.getElementById("newUrgency"),
   newRepeatRule: document.getElementById("newRepeatRule"),
+  newReminder: document.getElementById("newReminder"),
   newDueDate: document.getElementById("newDueDate"),
   newDueTime: document.getElementById("newDueTime"),
   dueSummary: document.getElementById("dueSummary"),
@@ -100,10 +127,14 @@ const els = {
   btnPomodoroReset: document.getElementById("btnPomodoroReset"),
   focusMinutes: document.getElementById("focusMinutes"),
   breakMinutes: document.getElementById("breakMinutes"),
+  btnEnableNotifications: document.getElementById("btnEnableNotifications"),
+  notificationStatus: document.getElementById("notificationStatus"),
 };
 
 let currentTodos = [];
 const openTodoIds = new Set();
+const notifiedTodoIds = new Set();
+let reminderTimer = null;
 
 const pomodoro = {
   mode: "focus",
@@ -128,6 +159,14 @@ function repeatLabel(rule) {
   if (rule === "daily") return "每天";
   if (rule === "weekly") return "每周";
   if (rule === "monthly") return "每月";
+  return "";
+}
+
+function reminderLabel(minutes) {
+  if (minutes === 0) return "到点提醒";
+  if (minutes === 10) return "提前 10 分钟";
+  if (minutes === 30) return "提前 30 分钟";
+  if (minutes === 60) return "提前 1 小时";
   return "";
 }
 
@@ -194,6 +233,95 @@ function initDueDefaults() {
   updateDueSummary();
 }
 
+async function loadVersionInfo() {
+  try {
+    const data = await API.version();
+    const short = data.version && data.version.short ? data.version.short : "unknown";
+    els.versionInfo.textContent = `版本：${short}`;
+    const last = localStorage.getItem("todo_app_version");
+    if (last && last !== short && "caches" in window) {
+      await caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+      location.reload();
+      return;
+    }
+    localStorage.setItem("todo_app_version", short);
+  } catch {
+    els.versionInfo.textContent = "版本：未知";
+  }
+}
+
+function renderCalendar() {
+  els.calendarGrid.innerHTML = "";
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  els.calendarMonth.textContent = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const first = new Date(year, month, 1);
+  const firstWeekday = first.getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  const byDay = new Map();
+  for (const todo of currentTodos) {
+    if (!todo.dueAt || todo.done) continue;
+    const d = new Date(todo.dueAt);
+    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+    const key = d.getDate();
+    byDay.set(key, (byDay.get(key) || 0) + 1);
+  }
+  ["日", "一", "二", "三", "四", "五", "六"].forEach((label) => {
+    const el = document.createElement("div");
+    el.className = "calendar-week";
+    el.textContent = label;
+    els.calendarGrid.appendChild(el);
+  });
+  for (let i = 0; i < firstWeekday; i += 1) {
+    const el = document.createElement("div");
+    el.className = "calendar-day muted";
+    els.calendarGrid.appendChild(el);
+  }
+  for (let day = 1; day <= days; day += 1) {
+    const el = document.createElement("div");
+    el.className = "calendar-day";
+    if (day === today.getDate()) el.classList.add("today");
+    const count = byDay.get(day) || 0;
+    el.innerHTML = `<span>${day}</span>${count ? `<strong>${count}</strong>` : ""}`;
+    els.calendarGrid.appendChild(el);
+  }
+}
+
+function updateNotificationStatus() {
+  if (!("Notification" in window)) {
+    els.notificationStatus.textContent = "当前浏览器不支持";
+    return;
+  }
+  els.notificationStatus.textContent = Notification.permission === "granted" ? "已开启" : "未开启";
+}
+
+function reminderTime(todo) {
+  if (!todo.dueAt || todo.reminderMinutes == null) return null;
+  const due = new Date(todo.dueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  return due.getTime() - Number(todo.reminderMinutes) * 60 * 1000;
+}
+
+function scheduleReminderCheck() {
+  clearInterval(reminderTimer);
+  reminderTimer = setInterval(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const now = Date.now();
+    for (const todo of currentTodos) {
+      if (todo.done || notifiedTodoIds.has(todo.id)) continue;
+      const at = reminderTime(todo);
+      if (at && now >= at && now - at < 60 * 1000) {
+        notifiedTodoIds.add(todo.id);
+        new Notification("Todo Sync 提醒", {
+          body: `${todo.title}${todo.dueAt ? `\n截止：${fmtDue(todo.dueAt)}` : ""}`,
+          tag: `todo-${todo.id}`,
+        });
+      }
+    }
+  }, 15000);
+}
+
 function clearSecurityForms() {
   els.changeCurrentPassword.value = "";
   els.changeNewPassword.value = "";
@@ -216,6 +344,8 @@ function showSecurityPanel(kind) {
 async function bootstrap() {
   initDueDefaults();
   updatePomodoroDisplay();
+  updateNotificationStatus();
+  await loadVersionInfo();
   const token = localStorage.getItem("todo_token");
   if (!token) {
     showAuth();
@@ -253,6 +383,8 @@ async function refresh() {
   const data = await API.listTodos();
   currentTodos = data.todos || [];
   renderTodos();
+  renderCalendar();
+  scheduleReminderCheck();
   setMsg(els.appMsg, `已同步：${new Date().toLocaleTimeString()}`);
 }
 
@@ -309,7 +441,8 @@ function renderTodos() {
 
     const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
     const openSubs = subs.filter((s) => !s.done).length;
-    metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个`;
+    const reminderText = reminderLabel(t.reminderMinutes);
+    metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个${reminderText ? ` · ${reminderText}` : ""}`;
 
     if (openTodoIds.has(t.id)) subtasksWrap.classList.remove("hidden");
     titleBtn.addEventListener("click", () => {
@@ -457,6 +590,47 @@ els.btnRegister.addEventListener("click", async () => {
   }
 });
 
+els.btnForgotPasswordOpen.addEventListener("click", () => {
+  els.forgotEmail.value = els.authEmail.value || "";
+  setMsg(els.forgotMsg, "");
+  els.forgotDialog.showModal();
+});
+els.btnCloseForgot.addEventListener("click", () => els.forgotDialog.close());
+els.btnRequestReset.addEventListener("click", async () => {
+  const email = (els.forgotEmail.value || "").trim();
+  if (!email) {
+    setMsg(els.forgotMsg, "请先输入邮箱。", "error");
+    return;
+  }
+  try {
+    const data = await API.requestPasswordReset(email);
+    setMsg(els.forgotMsg, data.message || "如果邮箱存在，重置邮件会在几分钟内发送。");
+  } catch (e) {
+    setMsg(els.forgotMsg, e.message, "error");
+  }
+});
+els.btnConfirmForgotReset.addEventListener("click", async () => {
+  const email = (els.forgotEmail.value || "").trim();
+  const token = (els.forgotToken.value || "").trim();
+  const code = (els.forgotCode.value || "").trim();
+  const newPassword = els.forgotNewPassword.value.trim();
+  const confirmPassword = els.forgotConfirmPassword.value.trim();
+  if (!email || (!token && !code) || !newPassword) {
+    setMsg(els.forgotMsg, "邮箱、验证码/Token、新密码都需要填写。", "error");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setMsg(els.forgotMsg, "两次输入的新密码不一致。", "error");
+    return;
+  }
+  try {
+    await API.confirmPasswordReset(email, token, code, newPassword);
+    setMsg(els.forgotMsg, "密码已重置，现在可以登录。");
+  } catch (e) {
+    setMsg(els.forgotMsg, e.message, "error");
+  }
+});
+
 els.btnLogout.addEventListener("click", () => {
   localStorage.removeItem("todo_token");
   clearSecurityForms();
@@ -528,17 +702,19 @@ els.btnAddTodo.addEventListener("click", async () => {
   const note = (els.newNote.value || "").trim();
   const urgency = Number(els.newUrgency.value || "1");
   const repeatRule = els.newRepeatRule.value || "none";
+  const reminderMinutes = els.newReminder.value === "none" ? null : (els.newReminder.value === "at_due" ? 0 : Number(els.newReminder.value));
   const dueAt = toUtcIsoFromInputs();
   if (!title) {
     setMsg(els.appMsg, "标题不能为空", "error");
     return;
   }
   try {
-    await API.addTodo({ title, note, urgency, repeatRule, dueAt });
+    await API.addTodo({ title, note, urgency, repeatRule, reminderMinutes, dueAt });
     els.newTitle.value = "";
     els.newNote.value = "";
     els.newUrgency.value = "1";
     els.newRepeatRule.value = "none";
+    els.newReminder.value = "none";
     initDueDefaults();
     await refresh();
   } catch (e) {
@@ -555,9 +731,36 @@ els.focusMinutes.addEventListener("change", () => {
 els.breakMinutes.addEventListener("change", () => {
   if (pomodoro.mode === "break") setPomodoroMode("break");
 });
+els.btnEnableNotifications.addEventListener("click", async () => {
+  if (!("Notification" in window)) {
+    updateNotificationStatus();
+    return;
+  }
+  await Notification.requestPermission();
+  updateNotificationStatus();
+});
+
+const resetParams = new URLSearchParams(location.search);
+if (resetParams.has("resetToken")) {
+  els.forgotEmail.value = resetParams.get("email") || "";
+  els.forgotToken.value = resetParams.get("resetToken") || "";
+  els.forgotDialog.showModal();
+  history.replaceState({}, "", location.pathname);
+}
 
 bootstrap();
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.register("/sw.js").then((registration) => {
+    registration.update().catch(() => {});
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "activated" && navigator.serviceWorker.controller) {
+          location.reload();
+        }
+      });
+    });
+  }).catch(() => {});
 }

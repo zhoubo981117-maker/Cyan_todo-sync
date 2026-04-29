@@ -42,7 +42,7 @@ body{
 .top-actions,.row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
 
 .wrap{max-width:1500px; margin:22px auto; padding:0 18px 56px}
-.card,.task-pane,.panel,.dialog-card{
+.card,.task-pane,.panel,.dialog-card,.pomodoro-strip,.calendar-panel{
   border:1px solid rgba(40,54,80,.82);
   background:linear-gradient(180deg,var(--panel),var(--panel2));
   box-shadow:var(--shadow);
@@ -59,10 +59,11 @@ body{
   gap:16px;
   align-items:start;
 }
-.task-pane{padding:18px; min-height:calc(100vh - 130px)}
+.task-pane{padding:18px; min-height:calc(100vh - 130px); display:grid; gap:14px; align-content:start}
 .side-pane{display:grid; gap:16px; position:sticky; top:82px}
 .panel{padding:16px}
 .panel-head,.pane-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px}
+.pane-actions{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
 .stats-pill{
   border:1px solid rgba(40,54,80,.82);
   border-radius:999px;
@@ -114,7 +115,16 @@ input:focus,select:focus{border-color:rgba(56,212,176,.82); box-shadow:0 0 0 3px
 .due-summary{font-size:13px; font-weight:700}
 .due-presets,.pomodoro-controls{display:flex; gap:8px; flex-wrap:wrap}
 
-.todos{margin-top:16px; display:grid; gap:10px}
+.pomodoro-strip{
+  padding:14px;
+  display:grid;
+  grid-template-columns:minmax(170px,1fr) auto auto auto minmax(230px,.7fr);
+  gap:14px;
+  align-items:center;
+}
+.pomodoro-selects{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+
+.todos{display:grid; gap:10px}
 .empty-state{padding:18px; border:1px dashed rgba(40,54,80,.8); border-radius:8px}
 .todo{
   border:1px solid rgba(40,54,80,.78);
@@ -170,8 +180,35 @@ input:focus,select:focus{border-color:rgba(56,212,176,.82); box-shadow:0 0 0 3px
 .sub{display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding:8px; border-radius:8px; background:rgba(7,12,23,.38)}
 .sub.done .sub-title{text-decoration:line-through; color:rgba(232,238,248,.62)}
 
-.timer{font-size:48px; font-weight:900; margin:12px 0; font-variant-numeric:tabular-nums}
-.pomodoro{display:grid; gap:12px}
+.timer{font-size:42px; font-weight:900; font-variant-numeric:tabular-nums; line-height:1}
+
+.calendar-panel{padding:14px}
+.calendar-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:12px}
+.calendar-week{font-size:11px; color:var(--muted); text-align:center}
+.calendar-day{
+  min-height:42px;
+  padding:7px;
+  border:1px solid rgba(40,54,80,.6);
+  border-radius:8px;
+  background:rgba(7,12,23,.34);
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  font-size:12px;
+}
+.calendar-day.muted{opacity:.25}
+.calendar-day.today{border-color:rgba(56,212,176,.7)}
+.calendar-day strong{
+  display:inline-flex;
+  min-width:18px;
+  height:18px;
+  border-radius:999px;
+  align-items:center;
+  justify-content:center;
+  background:rgba(79,145,255,.2);
+  color:#8bb7ff;
+  font-size:11px;
+}
 
 .dialog{border:0; padding:0; background:transparent; color:var(--text); width:min(760px,calc(100vw - 28px))}
 .dialog::backdrop{background:rgba(0,0,0,.55); backdrop-filter:blur(4px)}
@@ -183,11 +220,15 @@ input:focus,select:focus{border-color:rgba(56,212,176,.82); box-shadow:0 0 0 3px
 @media (max-width:980px){
   .app-shell{grid-template-columns:1fr}
   .side-pane{position:static}
+  .pomodoro-strip{grid-template-columns:1fr 72px 120px; align-items:start}
+  .pomodoro-controls,.pomodoro-selects{grid-column:1/-1}
 }
 @media (max-width:640px){
   .wrap{padding:0 10px 42px}
   .topbar{padding:12px 10px}
   .grid2{grid-template-columns:1fr}
+  .pomodoro-strip{grid-template-columns:1fr; align-items:stretch}
+  .pomodoro-selects{grid-template-columns:1fr}
   .todo-main{grid-template-columns:28px 1fr}
   .todo-actions{grid-column:2}
   .timer{font-size:40px}

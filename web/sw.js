@@ -1,4 +1,5 @@
-const CACHE = "todo-sync-v2";
+const APP_VERSION = "__APP_VERSION__";
+const CACHE = `todo-sync-${APP_VERSION}`;
 const ASSETS = [
   "/",
   "/index.html",
