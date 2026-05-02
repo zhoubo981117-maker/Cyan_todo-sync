@@ -8,6 +8,10 @@ This is a small self-hosted todo app:
 - Subtasks: each subtask can be completed independently.
 - Urgency + due time: each todo can be marked with an urgency level and a due datetime.
 
+## Project Submission
+
+- Xiaomi MiMo Orbit submission material: [`docs/xiaomi-mimo-orbit-submission.md`](docs/xiaomi-mimo-orbit-submission.md)
+
 ## Run
 
 Use the bundled Python runtime path from Codex (recommended).
