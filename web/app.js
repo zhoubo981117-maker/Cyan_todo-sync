@@ -41,7 +41,7 @@ const API = {
     });
   },
   version() {
-    return this.request("/api/version", { method: "GET" });
+    return this.request("/api/version", { method: "GET", cache: "no-store" });
   },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
@@ -83,6 +83,7 @@ const els = {
   versionInfo: document.getElementById("versionInfo"),
   calendarMonth: document.getElementById("calendarMonth"),
   calendarGrid: document.getElementById("calendarGrid"),
+  btnToggleCalendar: document.getElementById("btnToggleCalendar"),
   securityDialog: document.getElementById("securityDialog"),
   btnCloseSecurity: document.getElementById("btnCloseSecurity"),
   btnToggleChangePassword: document.getElementById("btnToggleChangePassword"),
@@ -135,6 +136,7 @@ let currentTodos = [];
 const openTodoIds = new Set();
 const notifiedTodoIds = new Set();
 let reminderTimer = null;
+let calendarExpanded = false;
 
 const pomodoro = {
   mode: "focus",
@@ -258,18 +260,23 @@ async function loadVersionInfo() {
 function renderCalendar() {
   els.calendarGrid.innerHTML = "";
   const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  els.calendarMonth.textContent = `${year}-${String(month + 1).padStart(2, "0")}`;
-  const first = new Date(year, month, 1);
-  const firstWeekday = first.getDay();
-  const days = new Date(year, month + 1, 0).getDate();
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(today.getDate() - today.getDay());
+  const days = calendarExpanded ? 31 : 7;
+  const end = new Date(start);
+  end.setDate(start.getDate() + days - 1);
+  els.calendarMonth.textContent = calendarExpanded
+    ? `${start.getMonth() + 1}/${start.getDate()} - ${end.getMonth() + 1}/${end.getDate()}`
+    : `本周 ${start.getMonth() + 1}/${start.getDate()} - ${end.getMonth() + 1}/${end.getDate()}`;
+  els.btnToggleCalendar.textContent = calendarExpanded ? "收起" : "展开";
   const byDay = new Map();
   for (const todo of currentTodos) {
     if (!todo.dueAt || todo.done) continue;
     const d = new Date(todo.dueAt);
-    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
-    const key = d.getDate();
+    d.setHours(0, 0, 0, 0);
+    if (d < start || d > end) continue;
+    const key = dateToInputValue(d);
     byDay.set(key, (byDay.get(key) || 0) + 1);
   }
   ["日", "一", "二", "三", "四", "五", "六"].forEach((label) => {
@@ -278,19 +285,49 @@ function renderCalendar() {
     el.textContent = label;
     els.calendarGrid.appendChild(el);
   });
-  for (let i = 0; i < firstWeekday; i += 1) {
-    const el = document.createElement("div");
-    el.className = "calendar-day muted";
-    els.calendarGrid.appendChild(el);
-  }
-  for (let day = 1; day <= days; day += 1) {
+  for (let i = 0; i < days; i += 1) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = dateToInputValue(d);
     const el = document.createElement("div");
     el.className = "calendar-day";
-    if (day === today.getDate()) el.classList.add("today");
-    const count = byDay.get(day) || 0;
-    el.innerHTML = `<span>${day}</span>${count ? `<strong>${count}</strong>` : ""}`;
+    if (key === dateToInputValue(today)) el.classList.add("today");
+    const count = byDay.get(key) || 0;
+    el.innerHTML = `<span>${d.getDate()}</span>${count ? `<strong>${count}</strong>` : ""}`;
     els.calendarGrid.appendChild(el);
   }
+}
+
+function editTodo(todo) {
+  const title = prompt("修改主任务标题", todo.title);
+  if (title === null) return;
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    setMsg(els.appMsg, "标题不能为空", "error");
+    return;
+  }
+  const note = prompt("修改备注", todo.note || "");
+  if (note === null) return;
+  API.patchTodo(todo.id, { title: nextTitle, note: note.trim() })
+    .then(refresh)
+    .catch((e) => setMsg(els.appMsg, e.message, "error"));
+}
+
+function editSubtask(todo, subtask) {
+  const title = prompt("修改子任务标题", subtask.title);
+  if (title === null) return;
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    setMsg(els.appMsg, "子任务标题不能为空", "error");
+    return;
+  }
+  API.patchSub(subtask.id, { title: nextTitle })
+    .then(() => {
+      subtask.title = nextTitle;
+      openTodoIds.add(todo.id);
+      renderTodos();
+    })
+    .catch((e) => setMsg(els.appMsg, e.message, "error"));
 }
 
 function updateNotificationStatus() {
@@ -418,6 +455,7 @@ function renderTodos() {
     const urg = node.querySelector(".badge.urgency");
     const repeat = node.querySelector(".badge.repeat");
     const due = node.querySelector(".badge.due");
+    const editBtn = node.querySelector(".todo-edit");
     const delBtn = node.querySelector(".todo-del");
     const subtasksWrap = node.querySelector(".subtasks");
     const subList = node.querySelector(".sub-list");
@@ -466,6 +504,8 @@ function renderTodos() {
       }
     });
 
+    editBtn.addEventListener("click", () => editTodo(t));
+
     delBtn.addEventListener("click", async () => {
       if (!confirm("删除这个代办以及所有子任务？")) return;
       try {
@@ -499,6 +539,7 @@ function renderTodos() {
       if (s.done) sn.classList.add("done");
       const sDone = sn.querySelector(".sub-done");
       const sTitle = sn.querySelector(".sub-title");
+      const sEdit = sn.querySelector(".sub-edit");
       const sDel = sn.querySelector(".sub-del");
       sDone.checked = !!s.done;
       sTitle.textContent = s.title;
@@ -513,6 +554,7 @@ function renderTodos() {
           setMsg(els.appMsg, e.message, "error");
         }
       });
+      sEdit.addEventListener("click", () => editSubtask(t, s));
       sDel.addEventListener("click", async () => {
         if (!confirm("删除这个子任务？")) return;
         try {
@@ -700,6 +742,10 @@ document.querySelectorAll(".due-preset").forEach((button) => {
   button.addEventListener("click", () => applyDuePreset(Number(button.dataset.offset || "1")));
 });
 document.querySelector(".due-clear").addEventListener("click", clearDue);
+els.btnToggleCalendar.addEventListener("click", () => {
+  calendarExpanded = !calendarExpanded;
+  renderCalendar();
+});
 
 els.btnAddTodo.addEventListener("click", async () => {
   setMsg(els.appMsg, "");

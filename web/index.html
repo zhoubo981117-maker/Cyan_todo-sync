@@ -50,10 +50,21 @@
 
       <section id="appCard" class="app-shell hidden">
         <section class="task-pane">
+          <div class="pane-head">
+            <div>
+              <div class="card-title">任务栏</div>
+              <div id="whoami" class="card-sub"></div>
+            </div>
+            <div class="pane-actions">
+              <div id="taskStats" class="stats-pill">0 / 0</div>
+              <div id="versionInfo" class="stats-pill">版本：检测中</div>
+            </div>
+          </div>
+
           <section class="pomodoro-strip">
             <div>
               <div class="panel-title">番茄钟</div>
-              <div class="card-sub">放在任务栏上方，启动后可切换专注/休息。</div>
+              <div class="card-sub">启动后可切换专注/休息。</div>
             </div>
             <div id="pomodoroMode" class="stats-pill">专注</div>
             <div id="pomodoroTime" class="timer">25:00</div>
@@ -82,23 +93,16 @@
             </div>
           </section>
 
-          <div class="pane-head">
-            <div>
-              <div class="card-title">任务栏</div>
-              <div id="whoami" class="card-sub"></div>
-            </div>
-            <div class="pane-actions">
-              <div id="taskStats" class="stats-pill">0 / 0</div>
-              <div id="versionInfo" class="stats-pill">版本：检测中</div>
-            </div>
-          </div>
           <section class="calendar-panel">
             <div class="panel-head">
               <div>
                 <div class="panel-title">日历视图</div>
-                <div class="card-sub">按完成日期查看任务，本周/本月计划会更直观。</div>
+                <div class="card-sub">默认显示本周，展开后查看最近一个月。</div>
               </div>
-              <div id="calendarMonth" class="stats-pill"></div>
+              <div class="calendar-actions">
+                <div id="calendarMonth" class="stats-pill"></div>
+                <button id="btnToggleCalendar" class="btn btn-ghost btn-mini" type="button">展开</button>
+              </div>
             </div>
             <div id="calendarGrid" class="calendar-grid"></div>
           </section>
@@ -294,6 +298,7 @@
             <div class="todo-meta"></div>
           </div>
           <div class="todo-actions">
+            <button class="btn btn-ghost btn-mini todo-edit" title="修改">修改</button>
             <button class="btn btn-ghost btn-mini todo-del" title="删除">删除</button>
           </div>
         </div>
@@ -317,6 +322,7 @@
           <span class="checkmark"></span>
         </label>
         <div class="sub-title"></div>
+        <button class="btn btn-ghost btn-mini sub-edit" title="修改">修改</button>
         <button class="btn btn-ghost btn-mini sub-del" title="删除">删除</button>
       </div>
     </template>
