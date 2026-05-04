@@ -240,8 +240,13 @@ async function loadVersionInfo() {
     els.versionInfo.textContent = `版本：${short}`;
     const last = localStorage.getItem("todo_app_version");
     if (last && last !== short && "caches" in window) {
+      const reloadKey = `todo_reloaded_for_${short}`;
+      localStorage.setItem("todo_app_version", short);
       await caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
-      location.reload();
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, "1");
+        location.reload();
+      }
       return;
     }
     localStorage.setItem("todo_app_version", short);
@@ -758,14 +763,5 @@ bootstrap();
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").then((registration) => {
     registration.update().catch(() => {});
-    registration.addEventListener("updatefound", () => {
-      const worker = registration.installing;
-      if (!worker) return;
-      worker.addEventListener("statechange", () => {
-        if (worker.state === "activated" && navigator.serviceWorker.controller) {
-          location.reload();
-        }
-      });
-    });
   }).catch(() => {});
 }
