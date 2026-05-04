@@ -224,12 +224,81 @@ input:focus,select:focus{border-color:rgba(56,212,176,.82); box-shadow:0 0 0 3px
   .pomodoro-controls,.pomodoro-selects{grid-column:1/-1}
 }
 @media (max-width:640px){
-  .wrap{padding:0 10px 42px}
-  .topbar{padding:12px 10px}
+  body{
+    background:
+      radial-gradient(circle at 20% 0%, rgba(56,212,176,.14), transparent 32%),
+      linear-gradient(180deg,#07100f,#0c111b 38%,#10131b);
+  }
+  .wrap{margin:12px auto; padding:0 8px 28px}
+  .topbar{
+    position:static;
+    padding:10px 12px;
+    align-items:flex-start;
+    gap:10px;
+  }
+  .brand{gap:8px; min-width:0}
+  .logo{width:30px; height:30px}
+  .brand-title{font-size:16px; line-height:1.15}
+  .brand-sub{font-size:11px; max-width:128px; line-height:1.25}
+  .top-actions{justify-content:flex-end; gap:6px; max-width:174px}
+  .top-actions .btn{min-height:34px; padding:7px 10px; border-radius:10px; font-size:13px}
+  .app-shell{gap:12px}
+  .task-pane,.panel,.pomodoro-strip,.calendar-panel{
+    border-radius:10px;
+    box-shadow:0 10px 28px rgba(0,0,0,.32);
+  }
+  .task-pane{padding:10px; min-height:0; gap:10px}
+  .panel{padding:12px}
+  .card-title,.panel-title{font-size:18px}
+  .pane-head{
+    align-items:flex-end;
+    gap:8px;
+  }
+  .pane-actions{gap:6px; max-width:156px}
+  .stats-pill{font-size:11px; padding:4px 8px}
   .grid2{grid-template-columns:1fr}
-  .pomodoro-strip{grid-template-columns:1fr; align-items:stretch}
-  .pomodoro-selects{grid-template-columns:1fr}
+  input,select{min-height:40px; border-radius:9px; padding:9px 10px; font-size:14px}
+  .btn{min-height:36px; border-radius:10px; padding:7px 11px}
+  .btn-mini{min-height:30px; padding:5px 9px}
+  .pomodoro-strip{
+    grid-template-columns:1fr auto;
+    align-items:center;
+    padding:12px;
+    gap:8px;
+  }
+  .pomodoro-strip .card-sub{display:none}
+  .pomodoro-strip .stats-pill{justify-self:end}
+  .timer{
+    grid-column:1/-1;
+    font-size:44px;
+    letter-spacing:-1px;
+    margin-top:2px;
+  }
+  .pomodoro-controls{grid-column:1/-1; gap:7px}
+  .pomodoro-selects{grid-column:1/-1; grid-template-columns:1fr 1fr; gap:8px}
+  .calendar-panel{padding:12px}
+  .calendar-panel .panel-head{align-items:center}
+  .calendar-panel .card-sub{display:none}
+  .calendar-grid{gap:4px; margin-top:10px}
+  .calendar-day{
+    min-height:34px;
+    padding:5px;
+    border-radius:9px;
+    font-size:11px;
+  }
+  .calendar-day strong{
+    min-width:16px;
+    height:16px;
+    font-size:10px;
+  }
+  .todo{border-radius:10px}
   .todo-main{grid-template-columns:28px 1fr}
   .todo-actions{grid-column:2}
-  .timer{font-size:40px}
+  .todo-title{font-size:15px}
+  .todo-note,.todo-meta{font-size:12px}
+  .badge{font-size:11px; padding:4px 7px}
+  .composer{gap:10px}
+  .due-card{padding:10px; gap:8px}
+  .due-presets{gap:6px}
+  .notification-panel .card-sub{font-size:11px}
 }
