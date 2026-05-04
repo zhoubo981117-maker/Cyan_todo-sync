@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_DIR = ROOT / "data"
+DATA_DIR = Path(os.environ.get("TODO_DATA_DIR", str(ROOT / "data")))
 WEB_DIR = ROOT / "web"
 DB_PATH = DATA_DIR / "app.db"
 SECRET_PATH = DATA_DIR / "secret.key"
@@ -34,6 +34,9 @@ ALLOWED_ORIGINS = [
     for o in os.environ.get("TODO_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+FEISHU_ENABLED = os.environ.get("TODO_FEISHU_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+FEISHU_VERIFY_TOKEN = os.environ.get("TODO_FEISHU_VERIFY_TOKEN", "").strip()
+FEISHU_DEFAULT_EMAIL = os.environ.get("TODO_FEISHU_DEFAULT_EMAIL", "").strip().lower()
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 RESET_TOKEN_TTL_SECONDS = 60 * 30  # 30 minutes
@@ -349,6 +352,67 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def parse_feishu_todo_command(text: str) -> Optional[str]:
+    normalized = " ".join(str(text or "").strip().split())
+    if not normalized:
+        return None
+    for prefix in ("新增任务", "todo", "任务"):
+        if normalized == prefix:
+            return None
+        marker = f"{prefix} "
+        if normalized.lower().startswith(marker.lower()):
+            title = normalized[len(marker):].strip()
+            return title or None
+    return None
+
+
+def create_feishu_todo(conn: sqlite3.Connection, default_email: str, title: str) -> dict[str, Any]:
+    email = normalize_email(default_email)
+    if not email:
+        raise ValueError("default account not configured")
+    clean_title = str(title or "").strip()
+    if not clean_title:
+        raise ValueError("title required")
+    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise ValueError("default account not found")
+    user_id = int(row["id"])
+    now = _utc_now_iso()
+    client_id = secrets.token_urlsafe(18)
+    cur = conn.execute(
+        """
+        INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, 'none', NULL, NULL, 0, NULL, NULL, ?, ?)
+        """,
+        (user_id, client_id, clean_title, "Created from Feishu", now, now),
+    )
+    return {
+        "id": int(cur.lastrowid),
+        "ownerUserId": user_id,
+        "clientId": client_id,
+        "title": clean_title,
+        "updatedAt": now,
+    }
+
+
+def _extract_feishu_message_text(body: dict[str, Any]) -> str:
+    event = body.get("event")
+    if not isinstance(event, dict):
+        return ""
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if not isinstance(content, str):
+        return ""
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return ""
+    text = parsed.get("text")
+    return str(text or "")
+
+
 def parse_json_body(handler: BaseHTTPRequestHandler) -> tuple[Optional[dict[str, Any]], Optional[str]]:
     try:
         length = int(handler.headers.get("Content-Length", "0"))
@@ -622,6 +686,36 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/version":
                 code, obj = json_ok({"time": _utc_now_iso(), "version": APP_VERSION})
                 self._send_json(code, obj)
+                return
+
+            if method == "POST" and path == "/api/feishu/events":
+                if not FEISHU_ENABLED:
+                    self._send_json(*json_error(404, "not found"))
+                    return
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                header = body.get("header") if isinstance(body.get("header"), dict) else {}
+                token = str(body.get("token") or header.get("token") or "").strip()
+                if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
+                    self._send_json(*json_error(401, "invalid feishu token"))
+                    return
+                if body.get("type") == "url_verification":
+                    challenge = str(body.get("challenge", ""))
+                    self._send_json(200, {"challenge": challenge})
+                    return
+                text = _extract_feishu_message_text(body)
+                title = parse_feishu_todo_command(text)
+                if not title:
+                    self._send_json(*json_ok({"handled": False}))
+                    return
+                try:
+                    todo = create_feishu_todo(DB, FEISHU_DEFAULT_EMAIL, title)
+                except ValueError as exc:
+                    self._send_json(*json_error(400, str(exc)))
+                    return
+                self._send_json(*json_ok({"handled": True, "todo": todo}))
                 return
 
             if method == "POST" and path == "/api/register":

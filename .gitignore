@@ -8,6 +8,7 @@ __pycache__/
 *.pyd
 .venv/
 venv/
+tests/tmp_data/
 
 # OS / editors
 .DS_Store

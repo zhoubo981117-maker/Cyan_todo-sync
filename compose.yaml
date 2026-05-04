@@ -7,6 +7,10 @@ services:
       - TODO_PORT=8787
       # Optional: allow cross-origin (comma separated), usually not needed.
       # - TODO_ALLOWED_ORIGINS=https://todo.example.com
+      # Optional: Feishu bot command integration.
+      # - TODO_FEISHU_ENABLED=1
+      # - TODO_FEISHU_VERIFY_TOKEN=your-feishu-event-verification-token
+      # - TODO_FEISHU_DEFAULT_EMAIL=you@example.com
     volumes:
       - ./data:/app/data
 
@@ -26,4 +30,3 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-

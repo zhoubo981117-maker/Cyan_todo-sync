@@ -132,6 +132,36 @@ If you are testing with IP + HTTP (e.g. `http://1.2.3.4:8787`):
 - Pull: `GET /api/sync/pull?since=<utc-iso>` (returns todos/subtasks updated since, including tombstones)
 - Push: `POST /api/sync/push` with `{ "todos": [...], "subtasks": [...] }`
 
+## Feishu Bot Commands
+
+You can let a Feishu custom app bot create todos by sending message events to this server.
+
+Configure the app service with:
+
+```bash
+TODO_FEISHU_ENABLED=1
+TODO_FEISHU_VERIFY_TOKEN=your-feishu-event-verification-token
+TODO_FEISHU_DEFAULT_EMAIL=you@example.com
+```
+
+In Feishu Open Platform, enable bot message events and set the event request URL to:
+
+```text
+https://todo.example.com/api/feishu/events
+```
+
+Do not configure an Encrypt Key for this first version. The server verifies the Feishu Verification Token, but it does not decrypt encrypted event payloads.
+
+The first version supports these text commands:
+
+```text
+新增任务 买菜
+todo 买菜
+任务 买菜
+```
+
+All Feishu-created todos are saved to the Todo account configured by `TODO_FEISHU_DEFAULT_EMAIL`.
+
 ## Notes
 
 - Data is stored in `data/app.db` (SQLite).
