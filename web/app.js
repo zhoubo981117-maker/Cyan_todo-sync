@@ -46,6 +46,9 @@ const API = {
   organizeTodos(text) {
     return this.request("/api/ai/organize", { method: "POST", body: JSON.stringify({ text }) });
   },
+  dailyPlan() {
+    return this.request("/api/ai/daily-plan", { method: "POST", body: JSON.stringify({}) });
+  },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
   },
@@ -129,6 +132,9 @@ const els = {
   aiSaveRow: document.getElementById("aiSaveRow"),
   btnAiSave: document.getElementById("btnAiSave"),
   aiSaveMsg: document.getElementById("aiSaveMsg"),
+  btnDailyPlan: document.getElementById("btnDailyPlan"),
+  dailyPlanMsg: document.getElementById("dailyPlanMsg"),
+  dailyPlanResult: document.getElementById("dailyPlanResult"),
   todoList: document.getElementById("todoList"),
   todoTpl: document.getElementById("todoTpl"),
   subTpl: document.getElementById("subTpl"),
@@ -742,6 +748,54 @@ async function saveAiDrafts() {
   }
 }
 
+function renderDailyPlan(plan, todoCount) {
+  const items = Array.isArray(plan.items) ? plan.items : [];
+  els.dailyPlanResult.classList.remove("hidden");
+  els.dailyPlanResult.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "daily-plan-head";
+  head.innerHTML = `<strong>${plan.date || "今日计划"}</strong><span>${todoCount || 0} 个未完成任务参与整理</span>`;
+  els.dailyPlanResult.appendChild(head);
+  if (plan.summary) {
+    const summary = document.createElement("div");
+    summary.className = "daily-plan-summary";
+    summary.textContent = plan.summary;
+    els.dailyPlanResult.appendChild(summary);
+  }
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "msg empty-state";
+    empty.textContent = "AI 暂时没有生成明确建议。";
+    els.dailyPlanResult.appendChild(empty);
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "daily-plan-list";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "daily-plan-item";
+    const time = item.time ? `<span class="badge due">${item.time}</span>` : "";
+    const ids = Array.isArray(item.todoIds) && item.todoIds.length ? `<small>关联任务：${item.todoIds.join(", ")}</small>` : "";
+    row.innerHTML = `${time}<div>${item.text || ""}</div>${ids}`;
+    list.appendChild(row);
+  });
+  els.dailyPlanResult.appendChild(list);
+}
+
+async function generateDailyPlan() {
+  els.btnDailyPlan.disabled = true;
+  setMsg(els.dailyPlanMsg, "AI 正在整理今日计划...");
+  try {
+    const data = await API.dailyPlan();
+    renderDailyPlan(data.plan || {}, data.todoCount || 0);
+    setMsg(els.dailyPlanMsg, "已生成");
+  } catch (e) {
+    setMsg(els.dailyPlanMsg, e.message, "error");
+  } finally {
+    els.btnDailyPlan.disabled = false;
+  }
+}
+
 function setPomodoroMode(mode) {
   pomodoro.mode = mode;
   pomodoro.running = false;
@@ -924,6 +978,7 @@ els.btnAiClear.addEventListener("click", () => {
   setMsg(els.aiSaveMsg, "");
 });
 els.btnAiSave.addEventListener("click", () => saveAiDrafts());
+els.btnDailyPlan.addEventListener("click", () => generateDailyPlan());
 
 els.btnAddTodo.addEventListener("click", async () => {
   setMsg(els.appMsg, "");

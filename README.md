@@ -165,7 +165,9 @@ https://todo.example.com/api/feishu/events
 
 Do not configure an Encrypt Key for this first version. The server verifies the Feishu Verification Token, but it does not decrypt encrypted event payloads.
 
-The first version supports these text commands:
+All Feishu-created todos are saved to the Todo account configured by `TODO_FEISHU_DEFAULT_EMAIL`.
+
+If Xiaomi MiMo AI is configured, Feishu text messages are organized with the same AI todo organizer used by the web app. A single message can create multiple todos with subtasks and due times. If AI is not configured, the basic command fallback supports:
 
 ```text
 新增任务 买菜
@@ -173,7 +175,9 @@ todo 买菜
 任务 买菜
 ```
 
-All Feishu-created todos are saved to the Todo account configured by `TODO_FEISHU_DEFAULT_EMAIL`.
+## Daily Plan
+
+The web app includes a "今日计划" panel. Click "生成今日计划" to ask AI for a suggested plan based on current unfinished todos. The first version only displays suggestions and does not create or modify todos automatically.
 
 ## Notes
 

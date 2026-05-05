@@ -3,6 +3,7 @@ import json
 import sqlite3
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["TODO_DATA_DIR"] = str(Path(__file__).resolve().parent / "tmp_data")
 
@@ -55,6 +56,31 @@ class FeishuTests(unittest.TestCase):
     def test_create_feishu_todo_rejects_unknown_default_account(self):
         with self.assertRaisesRegex(ValueError, "default account not found"):
             server.create_feishu_todo(self.conn, "missing@example.com", "买菜")
+
+    def test_create_feishu_ai_todos_creates_subtasks_and_due_time(self):
+        content = json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "打篮球",
+                        "note": "带衣服",
+                        "urgency": 1,
+                        "dueAt": "2026-05-06T16:00:00+08:00",
+                        "subtasks": ["带衣服"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+        with patch.object(server, "call_xiaomi_chat_completion", return_value=content):
+            todos = server.create_feishu_ai_todos(self.conn, "me@example.com", "明天下午16点打篮球，带衣服")
+
+        self.assertEqual(len(todos), 1)
+        self.assertEqual(todos[0]["title"], "打篮球")
+        self.assertEqual(todos[0]["subtasks"], ["带衣服"])
+        sub_count = self.conn.execute("SELECT COUNT(*) AS c FROM subtasks").fetchone()["c"]
+        self.assertEqual(sub_count, 1)
 
 
 if __name__ == "__main__":

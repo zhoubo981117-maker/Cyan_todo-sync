@@ -214,6 +214,34 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
 }
 .ai-draft-check input{width:auto; min-height:auto}
 .ai-save-row{padding-top:2px}
+.daily-plan-panel{display:grid; gap:12px}
+.daily-plan-result{
+  display:grid;
+  gap:10px;
+  padding:12px;
+  border:1px solid rgba(40,54,80,.72);
+  border-radius:8px;
+  background:rgba(7,12,23,.38);
+}
+.daily-plan-head{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  color:var(--muted);
+  font-size:12px;
+}
+.daily-plan-head strong{color:var(--text); font-size:14px}
+.daily-plan-summary{color:var(--muted); font-size:13px}
+.daily-plan-list{display:grid; gap:8px}
+.daily-plan-item{
+  display:grid;
+  gap:6px;
+  padding:10px;
+  border:1px solid rgba(40,54,80,.62);
+  border-radius:8px;
+  background:rgba(8,13,24,.55);
+}
+.daily-plan-item small{color:var(--muted)}
 
 .calendar-panel{padding:14px}
 .calendar-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:12px}

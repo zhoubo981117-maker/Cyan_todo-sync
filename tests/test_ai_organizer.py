@@ -80,6 +80,16 @@ class AiOrganizerHelperTests(unittest.TestCase):
 
         self.assertEqual(fixed[0]["dueAt"], "2026-05-06T16:00:00+08:00")
 
+    def test_parse_daily_plan_from_text(self):
+        text = """```json
+{"date":"2026-05-05","summary":"先做紧急事项","items":[{"time":"09:00","text":"完成方案评审","todoIds":[1,"2","bad"]}]}
+```"""
+
+        plan = server.parse_daily_plan_from_text(text)
+
+        self.assertEqual(plan["date"], "2026-05-05")
+        self.assertEqual(plan["items"][0]["todoIds"], [1, 2])
+
 
 class AiOrganizerEndpointTests(unittest.TestCase):
     def setUp(self):
@@ -170,6 +180,29 @@ class AiOrganizerEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 502)
         self.assertIn("invalid JSON", data["error"])
+
+    def test_daily_plan_returns_mocked_plan(self):
+        server.AI_API_KEY = "test"
+        self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (1, 'todo-1', '完成方案评审', '', 2, 'none', NULL, NULL, 0, NULL, NULL, ?, ?)
+            """,
+            (server._utc_now_iso(), server._utc_now_iso()),
+        )
+        plan = {"date": "2026-05-05", "summary": "先做评审", "items": [{"time": "09:00", "text": "完成方案评审", "todoIds": [1]}]}
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"}
+
+        with patch.object(server, "call_xiaomi_daily_plan", return_value=plan):
+            conn.request("POST", "/api/ai/daily-plan", body="{}", headers=headers)
+            res = conn.getresponse()
+            data = json.loads(res.read().decode("utf-8"))
+        conn.close()
+
+        self.assertEqual(res.status, 200)
+        self.assertEqual(data["plan"]["summary"], "先做评审")
+        self.assertEqual(data["todoCount"], 1)
 
 
 if __name__ == "__main__":

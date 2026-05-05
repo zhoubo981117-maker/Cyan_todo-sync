@@ -509,17 +509,17 @@ def _ai_prompt(now: Optional[datetime] = None) -> str:
     )
 
 
-def call_xiaomi_chat_completion(text: str) -> str:
+def call_xiaomi_chat_messages(system_prompt: str, user_text: str, temperature: float = 0.2) -> str:
     if AI_PROVIDER and AI_PROVIDER != "xiaomi":
         raise RuntimeError("unsupported AI provider")
     if not AI_API_KEY:
         raise RuntimeError("AI not configured")
     payload = {
         "model": AI_MODEL or "mimo-v2.5",
-        "temperature": 0.2,
+        "temperature": temperature,
         "messages": [
-            {"role": "system", "content": _ai_prompt()},
-            {"role": "user", "content": text},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
         ],
     }
     body = _json_bytes(payload)
@@ -551,6 +551,59 @@ def call_xiaomi_chat_completion(text: str) -> str:
     return content
 
 
+def call_xiaomi_chat_completion(text: str) -> str:
+    return call_xiaomi_chat_messages(_ai_prompt(), text, temperature=0.2)
+
+
+def create_todo_item_for_email(conn: sqlite3.Connection, default_email: str, item: dict[str, Any], source_note: str = "") -> dict[str, Any]:
+    email = normalize_email(default_email)
+    if not email:
+        raise ValueError("default account not configured")
+    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise ValueError("default account not found")
+    sanitized = sanitize_ai_todo_items({"items": [item]})
+    if not sanitized:
+        raise ValueError("title required")
+    todo = sanitized[0]
+    user_id = int(row["id"])
+    now = _utc_now_iso()
+    client_id = secrets.token_urlsafe(18)
+    note = todo["note"]
+    if source_note:
+        note = f"{note}\n{source_note}".strip()
+    cur = conn.execute(
+        """
+        INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'none', NULL, ?, 0, NULL, NULL, ?, ?)
+        """,
+        (user_id, client_id, todo["title"], note, int(todo["urgency"]), todo["dueAt"], now, now),
+    )
+    todo_id = int(cur.lastrowid)
+    subtask_titles = []
+    for subtask_title in todo["subtasks"]:
+        sub_client_id = secrets.token_urlsafe(18)
+        conn.execute(
+            """
+            INSERT INTO subtasks(owner_user_id, client_id, todo_id, title, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+            """,
+            (user_id, sub_client_id, todo_id, subtask_title, now, now),
+        )
+        subtask_titles.append(subtask_title)
+    return {
+        "id": todo_id,
+        "ownerUserId": user_id,
+        "clientId": client_id,
+        "title": todo["title"],
+        "note": note,
+        "urgency": todo["urgency"],
+        "dueAt": todo["dueAt"],
+        "subtasks": subtask_titles,
+        "updatedAt": now,
+    }
+
+
 def parse_feishu_todo_command(text: str) -> Optional[str]:
     normalized = " ".join(str(text or "").strip().split())
     if not normalized:
@@ -566,32 +619,20 @@ def parse_feishu_todo_command(text: str) -> Optional[str]:
 
 
 def create_feishu_todo(conn: sqlite3.Connection, default_email: str, title: str) -> dict[str, Any]:
-    email = normalize_email(default_email)
-    if not email:
-        raise ValueError("default account not configured")
     clean_title = str(title or "").strip()
     if not clean_title:
         raise ValueError("title required")
-    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
-    if not row:
-        raise ValueError("default account not found")
-    user_id = int(row["id"])
-    now = _utc_now_iso()
-    client_id = secrets.token_urlsafe(18)
-    cur = conn.execute(
-        """
-        INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 'none', NULL, NULL, 0, NULL, NULL, ?, ?)
-        """,
-        (user_id, client_id, clean_title, "Created from Feishu", now, now),
+    return create_todo_item_for_email(
+        conn,
+        default_email,
+        {"title": clean_title, "note": "Created from Feishu", "urgency": 1, "dueAt": None, "subtasks": []},
     )
-    return {
-        "id": int(cur.lastrowid),
-        "ownerUserId": user_id,
-        "clientId": client_id,
-        "title": clean_title,
-        "updatedAt": now,
-    }
+
+
+def create_feishu_ai_todos(conn: sqlite3.Connection, default_email: str, text: str) -> list[dict[str, Any]]:
+    content = call_xiaomi_chat_completion(text)
+    items = _apply_relative_due_fallback(parse_ai_items_from_text(content), text)
+    return [create_todo_item_for_email(conn, default_email, item, "Created from Feishu AI") for item in items]
 
 
 def _extract_feishu_message_text(body: dict[str, Any]) -> str:
@@ -610,6 +651,98 @@ def _extract_feishu_message_text(body: dict[str, Any]) -> str:
         return ""
     text = parsed.get("text")
     return str(text or "")
+
+
+def _daily_plan_prompt(now: Optional[datetime] = None) -> str:
+    current = _cn_now(now)
+    return (
+        "你是今日计划助手。根据用户已有代办，生成今天的执行建议，不要创建新任务。"
+        f"当前北京时间是 {current.strftime('%Y-%m-%d %H:%M')}，今天是 {current.strftime('%Y-%m-%d')}。"
+        "只输出严格 JSON，不要 Markdown，不要解释。格式："
+        '{"date":"YYYY-MM-DD","summary":"一句话总结","items":[{"time":"建议时间或空字符串","text":"行动建议","todoIds":[1]}]}。'
+        "items 最多 8 条。优先安排今天到期、已逾期、高优先级任务。"
+    )
+
+
+def _strip_json_object(text: str) -> str:
+    cleaned = _strip_json_code_fence(text)
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end >= start:
+        return cleaned[start : end + 1]
+    return cleaned
+
+
+def sanitize_daily_plan(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("AI returned invalid daily plan")
+    date = _clean_ai_string(raw.get("date"), 20)
+    summary = _clean_ai_string(raw.get("summary"), 200)
+    raw_items = raw.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("AI returned invalid daily plan items")
+    items = []
+    for raw_item in raw_items[:8]:
+        if not isinstance(raw_item, dict):
+            continue
+        text = _clean_ai_string(raw_item.get("text"), 200)
+        if not text:
+            continue
+        ids_raw = raw_item.get("todoIds")
+        todo_ids = []
+        if isinstance(ids_raw, list):
+            for value in ids_raw[:6]:
+                try:
+                    todo_ids.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+        items.append({"time": _clean_ai_string(raw_item.get("time"), 20), "text": text, "todoIds": todo_ids})
+    return {"date": date, "summary": summary, "items": items}
+
+
+def parse_daily_plan_from_text(text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(_strip_json_object(text))
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI returned invalid JSON") from exc
+    return sanitize_daily_plan(parsed)
+
+
+def _todos_for_daily_plan(user_id: int) -> list[dict[str, Any]]:
+    rows = DB.execute(
+        """
+        SELECT id, title, note, urgency, repeat_rule, reminder_minutes, due_at, updated_at
+        FROM todos
+        WHERE owner_user_id = ?
+          AND done = 0
+          AND deleted_at IS NULL
+        ORDER BY
+          CASE WHEN due_at IS NULL THEN 1 ELSE 0 END ASC,
+          due_at ASC,
+          urgency DESC,
+          updated_at DESC
+        LIMIT 40
+        """,
+        (user_id,),
+    ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "title": row["title"],
+            "note": row["note"],
+            "urgency": int(row["urgency"]),
+            "repeatRule": row["repeat_rule"],
+            "reminderMinutes": row["reminder_minutes"],
+            "dueAt": row["due_at"],
+        }
+        for row in rows
+    ]
+
+
+def call_xiaomi_daily_plan(todos: list[dict[str, Any]]) -> dict[str, Any]:
+    user_text = json.dumps({"todos": todos}, ensure_ascii=False, separators=(",", ":"))
+    content = call_xiaomi_chat_messages(_daily_plan_prompt(), user_text, temperature=0.3)
+    return parse_daily_plan_from_text(content)
 
 
 def parse_json_body(handler: BaseHTTPRequestHandler) -> tuple[Optional[dict[str, Any]], Optional[str]]:
@@ -905,14 +1038,24 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"challenge": challenge})
                     return
                 text = _extract_feishu_message_text(body)
-                title = parse_feishu_todo_command(text)
-                if not title:
+                if not text.strip():
                     self._send_json(*json_ok({"handled": False}))
                     return
                 try:
+                    if AI_API_KEY:
+                        todos = create_feishu_ai_todos(DB, FEISHU_DEFAULT_EMAIL, text)
+                        self._send_json(*json_ok({"handled": bool(todos), "todos": todos}))
+                        return
+                    title = parse_feishu_todo_command(text)
+                    if not title:
+                        self._send_json(*json_ok({"handled": False}))
+                        return
                     todo = create_feishu_todo(DB, FEISHU_DEFAULT_EMAIL, title)
                 except ValueError as exc:
                     self._send_json(*json_error(400, str(exc)))
+                    return
+                except RuntimeError as exc:
+                    self._send_json(*json_error(502, str(exc)))
                     return
                 self._send_json(*json_ok({"handled": True, "todo": todo}))
                 return
@@ -1132,6 +1275,22 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(*json_error(502, str(exc)))
                     return
                 self._send_json(*json_ok({"items": items}))
+                return
+
+            if method == "POST" and path == "/api/ai/daily-plan":
+                if not AI_API_KEY:
+                    self._send_json(*json_error(503, "AI not configured"))
+                    return
+                todos = _todos_for_daily_plan(user.id)
+                try:
+                    plan = call_xiaomi_daily_plan(todos)
+                except ValueError:
+                    self._send_json(*json_error(502, "AI returned invalid JSON"))
+                    return
+                except RuntimeError as exc:
+                    self._send_json(*json_error(502, str(exc)))
+                    return
+                self._send_json(*json_ok({"plan": plan, "todoCount": len(todos)}))
                 return
 
             if method == "GET" and path == "/api/todos":
