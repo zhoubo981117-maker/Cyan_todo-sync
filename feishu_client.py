@@ -9,6 +9,7 @@ import server
 
 
 LOG = logging.getLogger("todo-sync.feishu")
+RECEIVED_REPLY_TEXT = os.environ.get("TODO_FEISHU_RECEIVED_REPLY", "✅ 收到").strip() or "✅ 收到"
 
 
 def _event_to_dict(data: Any) -> dict[str, Any]:
@@ -52,6 +53,43 @@ def handle_feishu_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {"handled": True, "todo": todo}
 
 
+def extract_message_id(payload: dict[str, Any]) -> str:
+    event = payload.get("event")
+    if not isinstance(event, dict):
+        return ""
+    message = event.get("message")
+    if not isinstance(message, dict):
+        return ""
+    return str(message.get("message_id") or "").strip()
+
+
+def reply_to_feishu_message(api_client: Any, message_id: str, text: str = RECEIVED_REPLY_TEXT) -> bool:
+    if not message_id:
+        return False
+    try:
+        from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody  # type: ignore
+
+        request = (
+            ReplyMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                ReplyMessageRequestBody.builder()
+                .msg_type("text")
+                .content(json.dumps({"text": text}, ensure_ascii=False))
+                .build()
+            )
+            .build()
+        )
+        response = api_client.im.v1.message.reply(request)
+        success = response.success() if hasattr(response, "success") else True
+        if not success:
+            LOG.warning("failed to reply Feishu message: code=%s msg=%s", getattr(response, "code", ""), getattr(response, "msg", ""))
+        return bool(success)
+    except Exception:
+        LOG.exception("failed to reply Feishu message")
+        return False
+
+
 def _load_lark_sdk():
     try:
         import lark_oapi as lark  # type: ignore
@@ -79,9 +117,11 @@ def main() -> int:
         return 2
 
     lark = _load_lark_sdk()
+    api_client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
 
     def on_message(data: Any) -> None:
         payload = _event_to_dict(data)
+        reply_to_feishu_message(api_client, extract_message_id(payload))
         try:
             result = handle_feishu_event_payload(payload)
             LOG.info("processed Feishu message: %s", json.dumps(result, ensure_ascii=False, default=str))
@@ -100,7 +140,7 @@ def main() -> int:
         from lark_oapi.ws.client import LarkWSClient  # type: ignore
 
         client = LarkWSClient(
-            lark.Client.builder().app_id(app_id).app_secret(app_secret).build(),
+            api_client,
             event_handler=event_handler,
             log_level=log_level,
         )

@@ -82,6 +82,11 @@ class FeishuClientTests(unittest.TestCase):
         self.assertEqual(result["todos"][0]["title"], "play basketball")
         self.assertEqual(result["todos"][0]["subtasks"], ["bring clothes"])
 
+    def test_extract_message_id(self):
+        payload = {"event": {"message": {"message_id": "om_123"}}}
+
+        self.assertEqual(feishu_client.extract_message_id(payload), "om_123")
+
 
 if __name__ == "__main__":
     unittest.main()
