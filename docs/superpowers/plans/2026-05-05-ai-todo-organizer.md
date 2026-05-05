@@ -27,8 +27,8 @@ Add helper functions in `server.py`:
 ```python
 AI_PROVIDER = os.environ.get("TODO_AI_PROVIDER", "").strip().lower()
 AI_API_KEY = os.environ.get("TODO_AI_API_KEY", "").strip()
-AI_MODEL = os.environ.get("TODO_AI_MODEL", "mimo-v2-flash").strip()
-AI_BASE_URL = os.environ.get("TODO_AI_BASE_URL", "https://api.xiaomimimo.com/v1").strip().rstrip("/")
+AI_MODEL = os.environ.get("TODO_AI_MODEL", "mimo-v2.5").strip()
+AI_BASE_URL = os.environ.get("TODO_AI_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1").strip().rstrip("/")
 AI_MAX_INPUT_CHARS = int(os.environ.get("TODO_AI_MAX_INPUT_CHARS", "6000") or "6000")
 
 def sanitize_ai_todo_items(raw: Any) -> list[dict[str, Any]]:
@@ -137,8 +137,8 @@ Document:
 ```bash
 TODO_AI_PROVIDER=xiaomi
 TODO_AI_API_KEY=...
-TODO_AI_MODEL=mimo-v2-flash
-TODO_AI_BASE_URL=https://api.xiaomimimo.com/v1
+TODO_AI_MODEL=mimo-v2.5
+TODO_AI_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 ```
 
 - [ ] **Step 2: Run final verification**

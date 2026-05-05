@@ -3,6 +3,7 @@ import os
 import sqlite3
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -61,6 +62,23 @@ class AiOrganizerHelperTests(unittest.TestCase):
 
         self.assertEqual(len(items), 12)
         self.assertEqual(len(items[0]["subtasks"]), 12)
+
+    def test_ai_prompt_contains_current_beijing_date(self):
+        now = datetime(2026, 5, 5, 13, 40, tzinfo=timezone(timedelta(hours=8)))
+
+        prompt = server._ai_prompt(now)
+
+        self.assertIn("2026-05-05", prompt)
+        self.assertIn("明天是 2026-05-06", prompt)
+        self.assertIn("+08:00", prompt)
+
+    def test_relative_due_fallback_repairs_stale_model_date(self):
+        now = datetime(2026, 5, 5, 13, 40, tzinfo=timezone(timedelta(hours=8)))
+        items = [{"title": "打篮球", "note": "", "urgency": 1, "dueAt": "2023-10-02T16:00:00+08:00", "subtasks": []}]
+
+        fixed = server._apply_relative_due_fallback(items, "明天下午16点打篮球", now)
+
+        self.assertEqual(fixed[0]["dueAt"], "2026-05-06T16:00:00+08:00")
 
 
 class AiOrganizerEndpointTests(unittest.TestCase):

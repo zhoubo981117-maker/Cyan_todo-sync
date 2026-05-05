@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import smtplib
 import sqlite3
@@ -41,9 +42,10 @@ FEISHU_VERIFY_TOKEN = os.environ.get("TODO_FEISHU_VERIFY_TOKEN", "").strip()
 FEISHU_DEFAULT_EMAIL = os.environ.get("TODO_FEISHU_DEFAULT_EMAIL", "").strip().lower()
 AI_PROVIDER = os.environ.get("TODO_AI_PROVIDER", "").strip().lower()
 AI_API_KEY = os.environ.get("TODO_AI_API_KEY", "").strip()
-AI_MODEL = os.environ.get("TODO_AI_MODEL", "mimo-v2-flash").strip()
-AI_BASE_URL = os.environ.get("TODO_AI_BASE_URL", "https://api.xiaomimimo.com/v1").strip().rstrip("/")
+AI_MODEL = os.environ.get("TODO_AI_MODEL", "mimo-v2.5").strip()
+AI_BASE_URL = os.environ.get("TODO_AI_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1").strip().rstrip("/")
 AI_MAX_INPUT_CHARS = int(os.environ.get("TODO_AI_MAX_INPUT_CHARS", "6000") or "6000")
+CN_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 RESET_TOKEN_TTL_SECONDS = 60 * 30  # 30 minutes
@@ -436,12 +438,73 @@ def parse_ai_items_from_text(text: str) -> list[dict[str, Any]]:
     return sanitize_ai_todo_items(parsed)
 
 
-def _ai_prompt() -> str:
+def _cn_now(now: Optional[datetime] = None) -> datetime:
+    if now is None:
+        return datetime.now(CN_TZ).replace(microsecond=0)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=CN_TZ, microsecond=0)
+    return now.astimezone(CN_TZ).replace(microsecond=0)
+
+
+def _extract_simple_relative_due(text: str, now: Optional[datetime] = None) -> Optional[str]:
+    raw = str(text or "")
+    offset = None
+    if "今天" in raw:
+        offset = 0
+    if "明天" in raw:
+        offset = 1
+    if "后天" in raw:
+        offset = 2
+    if offset is None:
+        return None
+    match = re.search(r"(上午|早上|中午|下午|晚上)?\s*(\d{1,2})(?:[:：点时](\d{1,2})?)?", raw)
+    if not match:
+        return None
+    period = match.group(1) or ""
+    hour = int(match.group(2))
+    minute = int(match.group(3) or 0)
+    if hour > 23 or minute > 59:
+        return None
+    if period in ("下午", "晚上") and hour < 12:
+        hour += 12
+    if period == "中午" and hour < 11:
+        hour += 12
+    due = _cn_now(now) + timedelta(days=offset)
+    due = due.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return due.isoformat()
+
+
+def _apply_relative_due_fallback(items: list[dict[str, Any]], source_text: str, now: Optional[datetime] = None) -> list[dict[str, Any]]:
+    fallback = _extract_simple_relative_due(source_text, now)
+    if not fallback:
+        return items
+    current = _cn_now(now)
+    for item in items:
+        due_at = item.get("dueAt")
+        use_fallback = not due_at
+        if due_at:
+            try:
+                parsed = datetime.fromisoformat(str(due_at).replace("Z", "+00:00"))
+                use_fallback = parsed < current - timedelta(days=1)
+            except ValueError:
+                use_fallback = True
+        if use_fallback:
+            item["dueAt"] = fallback
+    return items
+
+
+def _ai_prompt(now: Optional[datetime] = None) -> str:
+    current = _cn_now(now)
+    tomorrow = current + timedelta(days=1)
     return (
         "你是代办事项整理助手。把用户输入的中文文本整理为待确认的代办草稿。"
+        f"当前日期时间是北京时间/Asia/Shanghai：{current.strftime('%Y-%m-%d %H:%M')}。"
+        f"今天是 {current.strftime('%Y-%m-%d')}，明天是 {tomorrow.strftime('%Y-%m-%d')}。"
+        "所有相对日期（今天、明天、后天、本周、下周）必须基于这个当前日期计算。"
         "只输出严格 JSON，不要 Markdown，不要解释。JSON 格式："
         '{"items":[{"title":"简短任务标题","note":"补充说明","urgency":1,'
         '"dueAt":"ISO8601时间或null","subtasks":["子任务"]}]}。'
+        "dueAt 必须带 +08:00 时区，例如 2026-05-06T16:00:00+08:00。"
         "urgency 取值 0 到 3，0最低，3最高。无法判断时间时 dueAt 为 null。"
     )
 
@@ -452,7 +515,7 @@ def call_xiaomi_chat_completion(text: str) -> str:
     if not AI_API_KEY:
         raise RuntimeError("AI not configured")
     payload = {
-        "model": AI_MODEL or "mimo-v2-flash",
+        "model": AI_MODEL or "mimo-v2.5",
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": _ai_prompt()},
@@ -1061,6 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     content = call_xiaomi_chat_completion(text)
                     items = parse_ai_items_from_text(content)
+                    items = _apply_relative_due_fallback(items, text)
                 except ValueError:
                     self._send_json(*json_error(502, "AI returned invalid JSON"))
                     return

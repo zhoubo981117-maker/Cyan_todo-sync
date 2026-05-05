@@ -65,8 +65,8 @@ Use environment variables:
 ```bash
 TODO_AI_PROVIDER=xiaomi
 TODO_AI_API_KEY=...
-TODO_AI_MODEL=mimo-v2-flash
-TODO_AI_BASE_URL=https://api.xiaomimimo.com/v1
+TODO_AI_MODEL=mimo-v2.5
+TODO_AI_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 ```
 
 The server calls Xiaomi from backend only. API keys are never exposed to browser JavaScript.

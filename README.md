@@ -90,8 +90,8 @@ The web app can use Xiaomi MiMo to turn pasted text into editable todo drafts. C
 ```bash
 TODO_AI_PROVIDER=xiaomi
 TODO_AI_API_KEY=your-xiaomi-mimo-api-key
-TODO_AI_MODEL=mimo-v2-flash
-TODO_AI_BASE_URL=https://api.xiaomimimo.com/v1
+TODO_AI_MODEL=mimo-v2.5
+TODO_AI_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 ```
 
 After restarting the server, open the app and use the "AI 整理" panel. The AI only creates local drafts in the browser; tasks are saved only after you review and click "保存选中".
