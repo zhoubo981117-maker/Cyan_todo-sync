@@ -18,7 +18,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
+from urllib import error as urlerror
 from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
@@ -37,6 +39,11 @@ ALLOWED_ORIGINS = [
 FEISHU_ENABLED = os.environ.get("TODO_FEISHU_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 FEISHU_VERIFY_TOKEN = os.environ.get("TODO_FEISHU_VERIFY_TOKEN", "").strip()
 FEISHU_DEFAULT_EMAIL = os.environ.get("TODO_FEISHU_DEFAULT_EMAIL", "").strip().lower()
+AI_PROVIDER = os.environ.get("TODO_AI_PROVIDER", "").strip().lower()
+AI_API_KEY = os.environ.get("TODO_AI_API_KEY", "").strip()
+AI_MODEL = os.environ.get("TODO_AI_MODEL", "mimo-v2-flash").strip()
+AI_BASE_URL = os.environ.get("TODO_AI_BASE_URL", "https://api.xiaomimimo.com/v1").strip().rstrip("/")
+AI_MAX_INPUT_CHARS = int(os.environ.get("TODO_AI_MAX_INPUT_CHARS", "6000") or "6000")
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 RESET_TOKEN_TTL_SECONDS = 60 * 30  # 30 minutes
@@ -350,6 +357,135 @@ def json_ok(data: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _clean_ai_string(value: Any, max_len: int) -> str:
+    return " ".join(str(value or "").strip().split())[:max_len]
+
+
+def _normalize_ai_due_at(value: Any) -> Optional[str]:
+    if value in (None, "", "null"):
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.replace(microsecond=0).isoformat()
+
+
+def sanitize_ai_todo_items(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        raw_items = raw.get("items")
+    else:
+        raw_items = raw
+    if not isinstance(raw_items, list):
+        raise ValueError("AI returned invalid item list")
+    items: list[dict[str, Any]] = []
+    for raw_item in raw_items[:12]:
+        if not isinstance(raw_item, dict):
+            continue
+        title = _clean_ai_string(raw_item.get("title"), 120)
+        if not title:
+            continue
+        note = _clean_ai_string(raw_item.get("note"), 500)
+        try:
+            urgency = int(raw_item.get("urgency", 1) or 1)
+        except (TypeError, ValueError):
+            urgency = 1
+        urgency = max(0, min(3, urgency))
+        subtasks_raw = raw_item.get("subtasks")
+        subtasks: list[str] = []
+        if isinstance(subtasks_raw, list):
+            for subtask in subtasks_raw[:12]:
+                sub_title = _clean_ai_string(subtask, 120)
+                if sub_title:
+                    subtasks.append(sub_title)
+        items.append(
+            {
+                "title": title,
+                "note": note,
+                "urgency": urgency,
+                "dueAt": _normalize_ai_due_at(raw_item.get("dueAt")),
+                "subtasks": subtasks,
+            }
+        )
+    return items
+
+
+def _strip_json_code_fence(text: str) -> str:
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    return cleaned
+
+
+def parse_ai_items_from_text(text: str) -> list[dict[str, Any]]:
+    cleaned = _strip_json_code_fence(text)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI returned invalid JSON") from exc
+    return sanitize_ai_todo_items(parsed)
+
+
+def _ai_prompt() -> str:
+    return (
+        "你是代办事项整理助手。把用户输入的中文文本整理为待确认的代办草稿。"
+        "只输出严格 JSON，不要 Markdown，不要解释。JSON 格式："
+        '{"items":[{"title":"简短任务标题","note":"补充说明","urgency":1,'
+        '"dueAt":"ISO8601时间或null","subtasks":["子任务"]}]}。'
+        "urgency 取值 0 到 3，0最低，3最高。无法判断时间时 dueAt 为 null。"
+    )
+
+
+def call_xiaomi_chat_completion(text: str) -> str:
+    if AI_PROVIDER and AI_PROVIDER != "xiaomi":
+        raise RuntimeError("unsupported AI provider")
+    if not AI_API_KEY:
+        raise RuntimeError("AI not configured")
+    payload = {
+        "model": AI_MODEL or "mimo-v2-flash",
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": _ai_prompt()},
+            {"role": "user", "content": text},
+        ],
+    }
+    body = _json_bytes(payload)
+    req = Request(
+        f"{AI_BASE_URL}/chat/completions",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {AI_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"AI request failed: HTTP {exc.code} {detail}") from exc
+    except (urlerror.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError("AI request failed") from exc
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not choices or not isinstance(choices, list):
+        raise RuntimeError("AI returned invalid response")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("AI returned empty response")
+    return content
 
 
 def parse_feishu_todo_command(text: str) -> Optional[str]:
@@ -905,6 +1041,33 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 update_user_password(user.id, new_password)
                 self._send_json(*json_ok({"message": "password reset"}))
+                return
+
+            if method == "POST" and path == "/api/ai/organize":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                text = str(body.get("text", "")).strip()
+                if not text:
+                    self._send_json(*json_error(400, "text required"))
+                    return
+                if len(text) > AI_MAX_INPUT_CHARS:
+                    self._send_json(*json_error(400, f"text too long, max {AI_MAX_INPUT_CHARS} chars"))
+                    return
+                if not AI_API_KEY:
+                    self._send_json(*json_error(503, "AI not configured"))
+                    return
+                try:
+                    content = call_xiaomi_chat_completion(text)
+                    items = parse_ai_items_from_text(content)
+                except ValueError:
+                    self._send_json(*json_error(502, "AI returned invalid JSON"))
+                    return
+                except RuntimeError as exc:
+                    self._send_json(*json_error(502, str(exc)))
+                    return
+                self._send_json(*json_ok({"items": items}))
                 return
 
             if method == "GET" and path == "/api/todos":

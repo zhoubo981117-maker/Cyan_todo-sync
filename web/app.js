@@ -43,6 +43,9 @@ const API = {
   version() {
     return this.request("/api/version", { method: "GET", cache: "no-store" });
   },
+  organizeTodos(text) {
+    return this.request("/api/ai/organize", { method: "POST", body: JSON.stringify({ text }) });
+  },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
   },
@@ -118,6 +121,14 @@ const els = {
   dueSummary: document.getElementById("dueSummary"),
   btnAddTodo: document.getElementById("btnAddTodo"),
   appMsg: document.getElementById("appMsg"),
+  aiInput: document.getElementById("aiInput"),
+  btnAiGenerate: document.getElementById("btnAiGenerate"),
+  btnAiClear: document.getElementById("btnAiClear"),
+  aiMsg: document.getElementById("aiMsg"),
+  aiDraftList: document.getElementById("aiDraftList"),
+  aiSaveRow: document.getElementById("aiSaveRow"),
+  btnAiSave: document.getElementById("btnAiSave"),
+  aiSaveMsg: document.getElementById("aiSaveMsg"),
   todoList: document.getElementById("todoList"),
   todoTpl: document.getElementById("todoTpl"),
   subTpl: document.getElementById("subTpl"),
@@ -133,6 +144,7 @@ const els = {
 };
 
 let currentTodos = [];
+let aiDrafts = [];
 const openTodoIds = new Set();
 const notifiedTodoIds = new Set();
 let reminderTimer = null;
@@ -223,6 +235,25 @@ function updateDueSummary() {
 function toUtcIsoFromInputs() {
   if (!els.newDueDate.value) return null;
   const value = `${els.newDueDate.value}T${els.newDueTime.value || "18:30"}`;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().replace(".000Z", "+00:00");
+}
+
+function isoToDatetimeLocal(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${hh}:${mm}`;
+}
+
+function datetimeLocalToUtcIso(value) {
+  if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString().replace(".000Z", "+00:00");
@@ -573,6 +604,144 @@ function renderTodos() {
   }
 }
 
+function renderAiDrafts() {
+  els.aiDraftList.innerHTML = "";
+  els.aiSaveRow.classList.toggle("hidden", aiDrafts.length === 0);
+  if (!aiDrafts.length) return;
+  aiDrafts.forEach((draft, index) => {
+    const card = document.createElement("article");
+    card.className = "ai-draft";
+    card.innerHTML = `
+      <label class="ai-draft-check">
+        <input type="checkbox" class="ai-draft-selected" ${draft.selected ? "checked" : ""} />
+        <span>保存</span>
+      </label>
+      <label class="field">
+        <span>任务</span>
+        <input class="ai-draft-title" type="text" value="" />
+      </label>
+      <label class="field">
+        <span>备注</span>
+        <textarea class="ai-draft-note" rows="2"></textarea>
+      </label>
+      <div class="grid2">
+        <label class="field">
+          <span>优先级</span>
+          <select class="ai-draft-urgency">
+            <option value="0">不急</option>
+            <option value="1">普通</option>
+            <option value="2">紧急</option>
+            <option value="3">非常紧急</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>完成时间</span>
+          <input class="ai-draft-due" type="datetime-local" />
+        </label>
+      </div>
+      <label class="field">
+        <span>子任务（一行一个）</span>
+        <textarea class="ai-draft-subtasks" rows="3"></textarea>
+      </label>
+    `;
+    const selected = card.querySelector(".ai-draft-selected");
+    const title = card.querySelector(".ai-draft-title");
+    const note = card.querySelector(".ai-draft-note");
+    const urgency = card.querySelector(".ai-draft-urgency");
+    const due = card.querySelector(".ai-draft-due");
+    const subtasks = card.querySelector(".ai-draft-subtasks");
+    title.value = draft.title || "";
+    note.value = draft.note || "";
+    urgency.value = String(draft.urgency ?? 1);
+    due.value = isoToDatetimeLocal(draft.dueAt);
+    subtasks.value = (draft.subtasks || []).join("\n");
+    selected.addEventListener("change", () => {
+      aiDrafts[index].selected = selected.checked;
+    });
+    title.addEventListener("input", () => {
+      aiDrafts[index].title = title.value;
+    });
+    note.addEventListener("input", () => {
+      aiDrafts[index].note = note.value;
+    });
+    urgency.addEventListener("change", () => {
+      aiDrafts[index].urgency = Number(urgency.value || "1");
+    });
+    due.addEventListener("change", () => {
+      aiDrafts[index].dueAt = datetimeLocalToUtcIso(due.value);
+    });
+    subtasks.addEventListener("input", () => {
+      aiDrafts[index].subtasks = subtasks.value.split("\n").map((x) => x.trim()).filter(Boolean);
+    });
+    els.aiDraftList.appendChild(card);
+  });
+}
+
+async function generateAiDrafts() {
+  const text = (els.aiInput.value || "").trim();
+  setMsg(els.aiMsg, "");
+  setMsg(els.aiSaveMsg, "");
+  if (!text) {
+    setMsg(els.aiMsg, "请先粘贴要整理的内容", "error");
+    return;
+  }
+  els.btnAiGenerate.disabled = true;
+  setMsg(els.aiMsg, "AI 正在整理...");
+  try {
+    const data = await API.organizeTodos(text);
+    aiDrafts = (data.items || []).map((item) => ({
+      selected: true,
+      title: item.title || "",
+      note: item.note || "",
+      urgency: Number(item.urgency ?? 1),
+      dueAt: item.dueAt || null,
+      subtasks: Array.isArray(item.subtasks) ? item.subtasks : [],
+    })).filter((item) => item.title.trim());
+    renderAiDrafts();
+    setMsg(els.aiMsg, aiDrafts.length ? `已生成 ${aiDrafts.length} 个草稿` : "AI 没有识别到明确代办");
+  } catch (e) {
+    setMsg(els.aiMsg, e.message, "error");
+  } finally {
+    els.btnAiGenerate.disabled = false;
+  }
+}
+
+async function saveAiDrafts() {
+  const selected = aiDrafts.filter((draft) => draft.selected && draft.title.trim());
+  if (!selected.length) {
+    setMsg(els.aiSaveMsg, "没有选中的草稿", "error");
+    return;
+  }
+  els.btnAiSave.disabled = true;
+  setMsg(els.aiSaveMsg, "保存中...");
+  try {
+    for (const draft of selected) {
+      const todo = await API.addTodo({
+        title: draft.title.trim(),
+        note: (draft.note || "").trim(),
+        urgency: Number(draft.urgency || 1),
+        repeatRule: "none",
+        reminderMinutes: null,
+        dueAt: draft.dueAt || null,
+      });
+      for (const subtask of draft.subtasks || []) {
+        const title = String(subtask || "").trim();
+        if (title) await API.addSub(todo.id, title);
+      }
+    }
+    aiDrafts = [];
+    renderAiDrafts();
+    els.aiInput.value = "";
+    setMsg(els.aiMsg, "");
+    setMsg(els.aiSaveMsg, `已保存 ${selected.length} 个代办`);
+    await refresh();
+  } catch (e) {
+    setMsg(els.aiSaveMsg, e.message, "error");
+  } finally {
+    els.btnAiSave.disabled = false;
+  }
+}
+
 function setPomodoroMode(mode) {
   pomodoro.mode = mode;
   pomodoro.running = false;
@@ -746,6 +915,15 @@ els.btnToggleCalendar.addEventListener("click", () => {
   calendarExpanded = !calendarExpanded;
   renderCalendar();
 });
+els.btnAiGenerate.addEventListener("click", () => generateAiDrafts());
+els.btnAiClear.addEventListener("click", () => {
+  els.aiInput.value = "";
+  aiDrafts = [];
+  renderAiDrafts();
+  setMsg(els.aiMsg, "");
+  setMsg(els.aiSaveMsg, "");
+});
+els.btnAiSave.addEventListener("click", () => saveAiDrafts());
 
 els.btnAddTodo.addEventListener("click", async () => {
   setMsg(els.appMsg, "");

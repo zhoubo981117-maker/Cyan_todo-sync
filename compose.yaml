@@ -11,6 +11,11 @@ services:
       # - TODO_FEISHU_ENABLED=1
       # - TODO_FEISHU_VERIFY_TOKEN=your-feishu-event-verification-token
       # - TODO_FEISHU_DEFAULT_EMAIL=you@example.com
+      # Optional: Xiaomi MiMo AI todo organizer.
+      # - TODO_AI_PROVIDER=xiaomi
+      # - TODO_AI_API_KEY=your-xiaomi-mimo-api-key
+      # - TODO_AI_MODEL=mimo-v2-flash
+      # - TODO_AI_BASE_URL=https://api.xiaomimimo.com/v1
     volumes:
       - ./data:/app/data
 

@@ -110,6 +110,24 @@
         </section>
 
         <aside class="side-pane">
+          <section class="panel ai-panel">
+            <div class="panel-title">AI 整理</div>
+            <div class="card-sub">粘贴会议记录、聊天内容或零散想法，生成可确认的代办草稿。</div>
+            <label class="field">
+              <span>原始内容</span>
+              <textarea id="aiInput" rows="5" placeholder="例如：明天 10 点前整理方案，下午同步给客户，同时让小王补充风险点"></textarea>
+            </label>
+            <div class="row">
+              <button id="btnAiGenerate" class="btn btn-secondary" type="button">生成草稿</button>
+              <button id="btnAiClear" class="btn btn-ghost" type="button">清空</button>
+              <div id="aiMsg" class="msg"></div>
+            </div>
+            <div id="aiDraftList" class="ai-drafts"></div>
+            <div class="row ai-save-row hidden" id="aiSaveRow">
+              <button id="btnAiSave" class="btn btn-primary" type="button">保存选中</button>
+              <div id="aiSaveMsg" class="msg"></div>
+            </div>
+          </section>
           <section class="panel composer">
             <div class="panel-title">新增代办</div>
             <label class="field">

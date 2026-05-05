@@ -83,6 +83,19 @@ If SMTP is not configured, the reset code and link are written to the server jou
 journalctl -u todo-sync -n 80 --no-pager
 ```
 
+## AI Todo Organizer
+
+The web app can use Xiaomi MiMo to turn pasted text into editable todo drafts. Configure the AI key on the server only:
+
+```bash
+TODO_AI_PROVIDER=xiaomi
+TODO_AI_API_KEY=your-xiaomi-mimo-api-key
+TODO_AI_MODEL=mimo-v2-flash
+TODO_AI_BASE_URL=https://api.xiaomimimo.com/v1
+```
+
+After restarting the server, open the app and use the "AI 整理" panel. The AI only creates local drafts in the browser; tasks are saved only after you review and click "保存选中".
+
 ## Public Internet (No Domain, IP Testing)
 
 If you don't have a domain yet, you can temporarily expose the app on `http://<server-ip>:8787/`:
