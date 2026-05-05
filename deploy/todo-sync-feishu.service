@@ -1,0 +1,18 @@
+[Unit]
+Description=Todo Sync Feishu Long Connection Client
+Wants=network-online.target
+After=network-online.target todo-sync.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Cyan_todo-sync
+Environment=PYTHONUNBUFFERED=1
+Environment=TODO_HOST=0.0.0.0
+Environment=TODO_PORT=8787
+EnvironmentFile=-/etc/todo-sync.env
+ExecStart=/usr/bin/python3 /opt/Cyan_todo-sync/feishu_client.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

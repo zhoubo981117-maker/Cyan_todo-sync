@@ -185,6 +185,40 @@ todo 买菜
 任务 买菜
 ```
 
+### Feishu Long Connection
+
+If Feishu refuses to save the public callback URL, use Feishu's long connection mode instead. This requires a separate worker process:
+
+```bash
+cd /opt/Cyan_todo-sync
+python3 -m pip install -r requirements.txt
+cp deploy/todo-sync-feishu.service /etc/systemd/system/todo-sync-feishu.service
+```
+
+Put the Feishu and AI variables in `/etc/todo-sync.env` so both services can read the same configuration:
+
+```bash
+TODO_FEISHU_ENABLED=1
+TODO_FEISHU_APP_ID=cli_xxx
+TODO_FEISHU_APP_SECRET=your-feishu-app-secret
+TODO_FEISHU_DEFAULT_EMAIL=you@example.com
+TODO_AI_PROVIDER=xiaomi
+TODO_AI_API_KEY=your-xiaomi-mimo-api-key
+TODO_AI_MODEL=mimo-v2.5
+TODO_AI_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+```
+
+Then start the worker:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now todo-sync-feishu
+systemctl status todo-sync-feishu --no-pager
+journalctl -u todo-sync-feishu -n 100 --no-pager
+```
+
+After the worker is running, return to Feishu Open Platform and re-check the long connection status. New bot messages are organized into todos for `TODO_FEISHU_DEFAULT_EMAIL`.
+
 ## Daily Plan
 
 The web app includes a "今日计划" panel. Click "生成今日计划" to ask AI for a suggested plan based on current unfinished todos. The first version only displays suggestions and does not create or modify todos automatically.
