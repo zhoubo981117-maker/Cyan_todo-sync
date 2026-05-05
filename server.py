@@ -49,6 +49,7 @@ CN_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 RESET_TOKEN_TTL_SECONDS = 60 * 30  # 30 minutes
+RESET_REQUEST_COOLDOWN_SECONDS = 60
 PBKDF2_ITERS = 200_000
 
 
@@ -240,6 +241,28 @@ def _smtp_configured() -> bool:
         os.environ.get(name, "").strip()
         for name in ("TODO_SMTP_HOST", "TODO_SMTP_USER", "TODO_SMTP_PASSWORD")
     ) and bool(os.environ.get("TODO_SMTP_FROM", os.environ.get("TODO_SMTP_USER", "")).strip())
+
+
+def _recent_password_reset_request(user_id: int, now: datetime) -> Optional[int]:
+    row = DB.execute(
+        """
+        SELECT created_at
+        FROM password_reset_tokens
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        created = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    elapsed = int((now - created).total_seconds())
+    remaining = RESET_REQUEST_COOLDOWN_SECONDS - elapsed
+    return remaining if remaining > 0 else None
 
 
 def open_db() -> sqlite3.Connection:
@@ -1150,10 +1173,15 @@ class Handler(BaseHTTPRequestHandler):
                 email = normalize_email(str(body.get("email", "")))
                 row = DB.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
                 if row:
+                    now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+                    cooldown = _recent_password_reset_request(int(row["id"]), now_dt)
+                    if cooldown:
+                        self._send_json(429, {"ok": False, "error": f"please wait {cooldown}s", "retryAfter": cooldown})
+                        return
                     token = secrets.token_urlsafe(32)
                     code = f"{secrets.randbelow(1_000_000):06d}"
-                    now = _utc_now_iso()
-                    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=RESET_TOKEN_TTL_SECONDS)).replace(microsecond=0).isoformat()
+                    now = now_dt.isoformat()
+                    expires_at = (now_dt + timedelta(seconds=RESET_TOKEN_TTL_SECONDS)).isoformat()
                     DB.execute(
                         """
                         INSERT INTO password_reset_tokens(user_id, token_hash, code, expires_at, used_at, created_at)

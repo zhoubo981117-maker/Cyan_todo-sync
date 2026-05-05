@@ -229,6 +229,25 @@ class AiOrganizerEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["challenge"], "abc")
 
+    def test_password_reset_request_is_rate_limited(self):
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {"Content-Type": "application/json"}
+        body = json.dumps({"email": "me@example.com"})
+
+        with patch.object(server, "_send_reset_email", return_value=False):
+            conn.request("POST", "/api/password/forgot", body=body, headers=headers)
+            first = conn.getresponse()
+            first_data = json.loads(first.read().decode("utf-8"))
+            conn.request("POST", "/api/password/forgot", body=body, headers=headers)
+            second = conn.getresponse()
+            second_data = json.loads(second.read().decode("utf-8"))
+        conn.close()
+
+        self.assertEqual(first.status, 200)
+        self.assertTrue(first_data["ok"])
+        self.assertEqual(second.status, 429)
+        self.assertIn("retryAfter", second_data)
+
 
 if __name__ == "__main__":
     unittest.main()

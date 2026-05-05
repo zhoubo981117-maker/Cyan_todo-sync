@@ -155,6 +155,7 @@ const openTodoIds = new Set();
 const notifiedTodoIds = new Set();
 let reminderTimer = null;
 let calendarExpanded = false;
+let resetCooldownTimer = null;
 
 const pomodoro = {
   mode: "focus",
@@ -166,6 +167,24 @@ const pomodoro = {
 function setMsg(el, s, kind = "info") {
   el.textContent = s || "";
   el.style.color = kind === "error" ? "rgba(255,84,112,.95)" : "rgba(170,180,214,.95)";
+}
+
+function startResetCooldown(seconds = 60) {
+  clearInterval(resetCooldownTimer);
+  let remaining = Number(seconds) || 60;
+  els.btnRequestReset.disabled = true;
+  els.btnRequestReset.textContent = `${remaining}s 后重试`;
+  resetCooldownTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(resetCooldownTimer);
+      resetCooldownTimer = null;
+      els.btnRequestReset.disabled = false;
+      els.btnRequestReset.textContent = "发送验证码/链接";
+      return;
+    }
+    els.btnRequestReset.textContent = `${remaining}s 后重试`;
+  }, 1000);
 }
 
 function urgencyLabel(u) {
@@ -872,10 +891,15 @@ els.btnRequestReset.addEventListener("click", async () => {
     setMsg(els.forgotMsg, "请先输入邮箱。", "error");
     return;
   }
+  els.btnRequestReset.disabled = true;
+  els.btnRequestReset.textContent = "发送中...";
   try {
     const data = await API.requestPasswordReset(email);
+    startResetCooldown(60);
     setMsg(els.forgotMsg, data.message || "如果邮箱存在，重置邮件会在几分钟内发送。");
   } catch (e) {
+    const seconds = Number(String(e.message || "").match(/(\d+)s/)?.[1] || 60);
+    startResetCooldown(seconds);
     setMsg(els.forgotMsg, e.message, "error");
   }
 });
