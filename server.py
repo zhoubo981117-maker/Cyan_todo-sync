@@ -1044,9 +1044,9 @@ class Handler(BaseHTTPRequestHandler):
                 header = body.get("header") if isinstance(body.get("header"), dict) else {}
                 token = str(body.get("token") or header.get("token") or "").strip()
                 if body.get("type") == "url_verification":
-                    if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
-                        self._send_json(*json_error(401, "invalid feishu token"))
-                        return
+                    # Feishu validates the URL before event delivery. Return the challenge
+                    # immediately so a token mismatch cannot make the console reject the URL.
+                    # Real event pushes below still verify TODO_FEISHU_VERIFY_TOKEN.
                     challenge = str(body.get("challenge", ""))
                     self._send_json(200, {"challenge": challenge})
                     return

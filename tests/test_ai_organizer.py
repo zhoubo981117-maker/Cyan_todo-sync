@@ -214,6 +214,21 @@ class AiOrganizerEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["challenge"], "abc")
 
+    def test_feishu_url_verification_ignores_token_mismatch(self):
+        old_token = server.FEISHU_VERIFY_TOKEN
+        server.FEISHU_VERIFY_TOKEN = "server-token"
+        try:
+            status, data = self.request(
+                {"type": "url_verification", "challenge": "abc", "token": "console-token"},
+                token=False,
+                path="/api/feishu/events",
+            )
+        finally:
+            server.FEISHU_VERIFY_TOKEN = old_token
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["challenge"], "abc")
+
 
 if __name__ == "__main__":
     unittest.main()
