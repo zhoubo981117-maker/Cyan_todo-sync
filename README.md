@@ -83,6 +83,16 @@ If SMTP is not configured, the reset code and link are written to the server jou
 journalctl -u todo-sync -n 80 --no-pager
 ```
 
+For QQ Mail, use an SMTP authorization code instead of the normal mailbox password:
+
+```bash
+TODO_SMTP_HOST=smtp.qq.com
+TODO_SMTP_PORT=465
+TODO_SMTP_USER=your@qq.com
+TODO_SMTP_PASSWORD=your-qq-mail-smtp-authorization-code
+TODO_SMTP_FROM=your@qq.com
+```
+
 ## AI Todo Organizer
 
 The web app can use Xiaomi MiMo to turn pasted text into editable todo drafts. Configure the AI key on the server only:
@@ -160,7 +170,7 @@ TODO_FEISHU_DEFAULT_EMAIL=you@example.com
 In Feishu Open Platform, enable bot message events and set the event request URL to:
 
 ```text
-https://todo.example.com/api/feishu/events
+https://todo.example.com/feishu
 ```
 
 Do not configure an Encrypt Key for this first version. The server verifies the Feishu Verification Token, but it does not decrypt encrypted event payloads.

@@ -235,6 +235,13 @@ def _send_reset_email(email: str, reset_url: str, code: str) -> bool:
     return True
 
 
+def _smtp_configured() -> bool:
+    return all(
+        os.environ.get(name, "").strip()
+        for name in ("TODO_SMTP_HOST", "TODO_SMTP_USER", "TODO_SMTP_PASSWORD")
+    ) and bool(os.environ.get("TODO_SMTP_FROM", os.environ.get("TODO_SMTP_USER", "")).strip())
+
+
 def open_db() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, isolation_level=None, check_same_thread=False)
@@ -936,6 +943,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/feishu":
+            self._send_text(200, "ok")
+            return
         if parsed.path.startswith("/api/"):
             if parsed.path == "/api/health":
                 body = _json_bytes({"ok": True, "time": _utc_now_iso()})
@@ -952,6 +962,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/feishu":
+            self._send_json(200, {"ok": True, "endpoint": "feishu"})
+            return
         if parsed.path.startswith("/api/"):
             self._handle_api("GET", parsed.path, parse_qs(parsed.query))
             return
@@ -959,6 +972,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/feishu":
+            self._handle_api("POST", "/api/feishu/events", parse_qs(parsed.query))
+            return
         if parsed.path.startswith("/api/"):
             self._handle_api("POST", parsed.path, parse_qs(parsed.query))
             return
@@ -1021,21 +1037,24 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if method == "POST" and path == "/api/feishu/events":
-                if not FEISHU_ENABLED:
-                    self._send_json(*json_error(404, "not found"))
-                    return
                 body, err = parse_json_body(self)
                 if err:
                     self._send_json(*json_error(400, err))
                     return
                 header = body.get("header") if isinstance(body.get("header"), dict) else {}
                 token = str(body.get("token") or header.get("token") or "").strip()
-                if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
-                    self._send_json(*json_error(401, "invalid feishu token"))
-                    return
                 if body.get("type") == "url_verification":
+                    if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
+                        self._send_json(*json_error(401, "invalid feishu token"))
+                        return
                     challenge = str(body.get("challenge", ""))
                     self._send_json(200, {"challenge": challenge})
+                    return
+                if not FEISHU_ENABLED:
+                    self._send_json(*json_error(404, "not found"))
+                    return
+                if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
+                    self._send_json(*json_error(401, "invalid feishu token"))
                     return
                 text = _extract_feishu_message_text(body)
                 if not text.strip():
@@ -1145,11 +1164,18 @@ class Handler(BaseHTTPRequestHandler):
                     proto = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
                     host = self.headers.get("Host", "")
                     reset_url = f"{proto}://{host}/?resetToken={token}&email={email}" if host else token
-                    sent = _send_reset_email(email, reset_url, code)
-                    self._send_json(*json_ok({"sent": sent, "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
+                    try:
+                        sent = _send_reset_email(email, reset_url, code)
+                    except Exception as exc:
+                        print(f"[password-reset] SMTP send failed. email={email} error={exc}", flush=True)
+                        sent = False
+                    message = "如果邮箱存在，重置邮件会在几分钟内发送。"
+                    if not _smtp_configured():
+                        message = "服务器未配置 SMTP，验证码已写入服务器日志。"
+                    self._send_json(*json_ok({"sent": sent, "smtpConfigured": _smtp_configured(), "message": message}))
                     return
                 # Do not reveal whether the account exists.
-                self._send_json(*json_ok({"sent": False, "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
+                self._send_json(*json_ok({"sent": False, "smtpConfigured": _smtp_configured(), "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
                 return
 
             if method == "POST" and path == "/api/password/forgot/confirm":

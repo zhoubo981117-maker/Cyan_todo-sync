@@ -122,12 +122,12 @@ class AiOrganizerEndpointTests(unittest.TestCase):
         server.DB = self.old_db
         server.AI_API_KEY = self.old_ai_key
 
-    def request(self, body, token=True):
+    def request(self, body, token=True, path="/api/ai/organize"):
         conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {self.token}"
-        conn.request("POST", "/api/ai/organize", body=json.dumps(body), headers=headers)
+        conn.request("POST", path, body=json.dumps(body), headers=headers)
         res = conn.getresponse()
         data = json.loads(res.read().decode("utf-8"))
         conn.close()
@@ -203,6 +203,16 @@ class AiOrganizerEndpointTests(unittest.TestCase):
         self.assertEqual(res.status, 200)
         self.assertEqual(data["plan"]["summary"], "先做评审")
         self.assertEqual(data["todoCount"], 1)
+
+    def test_short_feishu_url_verification_path(self):
+        status, data = self.request(
+            {"type": "url_verification", "challenge": "abc", "token": ""},
+            token=False,
+            path="/feishu",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["challenge"], "abc")
 
 
 if __name__ == "__main__":
