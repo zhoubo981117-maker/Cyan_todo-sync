@@ -22,7 +22,8 @@ Use the bundled Python runtime path from Codex (recommended).
 
 Then open:
 
-- `https://www.cyancola.xin/`  Windows or Android
+- `http://127.0.0.1:8787/` on Windows
+- `http://<your-windows-lan-ip>:8787/` on Android (same Wi-Fi)
 
 ## Public Internet (HTTPS)
 

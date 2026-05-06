@@ -5,6 +5,7 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
+from io import StringIO
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -247,6 +248,24 @@ class AiOrganizerEndpointTests(unittest.TestCase):
         self.assertTrue(first_data["ok"])
         self.assertEqual(second.status, 429)
         self.assertIn("retryAfter", second_data)
+
+    def test_password_reset_request_logs_diagnostics(self):
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {"Content-Type": "application/json"}
+        body = json.dumps({"email": "me@example.com"})
+        output = StringIO()
+
+        with patch.object(server, "_send_reset_email", return_value=False), patch("sys.stdout", output):
+            conn.request("POST", "/api/password/forgot", body=body, headers=headers)
+            res = conn.getresponse()
+            res.read()
+        conn.close()
+
+        self.assertEqual(res.status, 200)
+        logs = output.getvalue()
+        self.assertIn("[password-reset] request received.", logs)
+        self.assertIn("accountFound=True", logs)
+        self.assertIn("[password-reset] response.", logs)
 
 
 if __name__ == "__main__":

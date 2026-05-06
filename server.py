@@ -233,6 +233,7 @@ def _send_reset_email(email: str, reset_url: str, code: str) -> bool:
             smtp.starttls()
             smtp.login(user, password)
             smtp.send_message(msg)
+    print(f"[password-reset] SMTP send success. email={email} host={host} port={port} sender={sender}", flush=True)
     return True
 
 
@@ -241,6 +242,19 @@ def _smtp_configured() -> bool:
         os.environ.get(name, "").strip()
         for name in ("TODO_SMTP_HOST", "TODO_SMTP_USER", "TODO_SMTP_PASSWORD")
     ) and bool(os.environ.get("TODO_SMTP_FROM", os.environ.get("TODO_SMTP_USER", "")).strip())
+
+
+def _smtp_status_for_log() -> str:
+    host = os.environ.get("TODO_SMTP_HOST", "").strip()
+    port = os.environ.get("TODO_SMTP_PORT", "465").strip()
+    user = os.environ.get("TODO_SMTP_USER", "").strip()
+    sender = os.environ.get("TODO_SMTP_FROM", user).strip()
+    password_set = bool(os.environ.get("TODO_SMTP_PASSWORD", "").strip())
+    configured = _smtp_configured()
+    return (
+        f"configured={configured} host={host or '-'} port={port or '-'} "
+        f"user={user or '-'} sender={sender or '-'} passwordSet={password_set}"
+    )
 
 
 def _recent_password_reset_request(user_id: int, now: datetime) -> Optional[int]:
@@ -1172,10 +1186,16 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 email = normalize_email(str(body.get("email", "")))
                 row = DB.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+                print(
+                    f"[password-reset] request received. email={email or '-'} "
+                    f"accountFound={bool(row)} smtp={_smtp_status_for_log()}",
+                    flush=True,
+                )
                 if row:
                     now_dt = datetime.now(timezone.utc).replace(microsecond=0)
                     cooldown = _recent_password_reset_request(int(row["id"]), now_dt)
                     if cooldown:
+                        print(f"[password-reset] rate limited. email={email} retryAfter={cooldown}", flush=True)
                         self._send_json(429, {"ok": False, "error": f"please wait {cooldown}s", "retryAfter": cooldown})
                         return
                     token = secrets.token_urlsafe(32)
@@ -1200,9 +1220,11 @@ class Handler(BaseHTTPRequestHandler):
                     message = "如果邮箱存在，重置邮件会在几分钟内发送。"
                     if not _smtp_configured():
                         message = "服务器未配置 SMTP，验证码已写入服务器日志。"
+                    print(f"[password-reset] response. email={email} sent={sent} smtpConfigured={_smtp_configured()}", flush=True)
                     self._send_json(*json_ok({"sent": sent, "smtpConfigured": _smtp_configured(), "message": message}))
                     return
                 # Do not reveal whether the account exists.
+                print(f"[password-reset] ignored unknown account. email={email or '-'}", flush=True)
                 self._send_json(*json_ok({"sent": False, "smtpConfigured": _smtp_configured(), "message": "如果邮箱存在，重置邮件会在几分钟内发送。"}))
                 return
 
