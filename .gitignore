@@ -9,6 +9,7 @@ __pycache__/
 .venv/
 venv/
 tests/tmp_data/
+deploy_retry.log
 
 # OS / editors
 .DS_Store
