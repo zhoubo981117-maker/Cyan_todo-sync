@@ -39,9 +39,28 @@ function Invoke-GhJson {
     }
 }
 
+function Get-GitBlobBytes {
+    param([string]$BlobSha)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "git"
+    $psi.Arguments = "cat-file blob $BlobSha"
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $memory = New-Object System.IO.MemoryStream
+    $proc.StandardOutput.BaseStream.CopyTo($memory)
+    $stderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
+    if ($proc.ExitCode -ne 0) {
+        throw "git cat-file failed for ${BlobSha}: $stderr"
+    }
+    return $memory.ToArray()
+}
+
 function New-GitHubBlob {
-    param([string]$Path)
-    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
+    param([string]$BlobSha)
+    $bytes = Get-GitBlobBytes -BlobSha $BlobSha
     return Invoke-GhJson -ApiArgs @("repos/$Repo/git/blobs", "--method", "POST") -Body @{
         content = [Convert]::ToBase64String($bytes)
         encoding = "base64"
@@ -85,7 +104,7 @@ git ls-tree -r HEAD | ForEach-Object {
     if ($parts.Count -ne 2) { return }
     $meta = $parts[0] -split " "
     $path = $parts[1]
-    $blob = New-GitHubBlob -Path $path
+    $blob = New-GitHubBlob -BlobSha $meta[2]
     $entries += @{
         path = $path
         mode = $meta[0]
