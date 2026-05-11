@@ -327,6 +327,23 @@ def init_db(conn: sqlite3.Connection) -> None:
           FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_user_id INTEGER NOT NULL,
+          original_input TEXT NOT NULL,
+          summary TEXT NOT NULL DEFAULT '',
+          record_type TEXT NOT NULL DEFAULT 'other',
+          tags_json TEXT NOT NULL DEFAULT '[]',
+          dates_json TEXT NOT NULL DEFAULT '[]',
+          sentiment TEXT NOT NULL DEFAULT 'neutral',
+          ai_status TEXT NOT NULL DEFAULT 'pending',
+          ai_error TEXT NOT NULL DEFAULT '',
+          deleted_at TEXT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS password_reset_tokens (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER NOT NULL,
@@ -340,6 +357,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_todos_owner_updated ON todos(owner_user_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_subtasks_todo ON subtasks(todo_id);
+        CREATE INDEX IF NOT EXISTS idx_records_owner_updated ON records(owner_user_id, updated_at DESC);
         """
     )
 
@@ -364,6 +382,8 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE todos ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT 'none'")
     if not _column_exists(conn, "todos", "reminder_minutes"):
         conn.execute("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER NULL")
+    if not _column_exists(conn, "todos", "source_record_id"):
+        conn.execute("ALTER TABLE todos ADD COLUMN source_record_id INTEGER NULL")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_todos_owner_client_id ON todos(owner_user_id, client_id)"
@@ -373,6 +393,12 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_todos_owner_updated2 ON todos(owner_user_id, updated_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_records_owner_updated2 ON records(owner_user_id, updated_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_todos_source_record ON todos(owner_user_id, source_record_id)"
     )
 
     # Backfill missing client_id for existing rows.
@@ -461,6 +487,166 @@ def sanitize_ai_todo_items(raw: Any) -> list[dict[str, Any]]:
     return items
 
 
+RECORD_TYPES = {"task", "note", "idea", "reminder", "event", "question", "other"}
+RECORD_SENTIMENTS = {"positive", "neutral", "negative"}
+RECORD_STATUSES = {"pending", "ready", "failed"}
+
+
+def _normalize_record_type(value: Any) -> str:
+    raw = str(value or "other").strip().lower()
+    aliases = {
+        "任务": "task",
+        "待办": "task",
+        "笔记": "note",
+        "灵感": "idea",
+        "提醒": "reminder",
+        "事件": "event",
+        "问题": "question",
+    }
+    raw = aliases.get(raw, raw)
+    return raw if raw in RECORD_TYPES else "other"
+
+
+def _normalize_record_sentiment(value: Any) -> str:
+    raw = str(value or "neutral").strip().lower()
+    aliases = {"积极": "positive", "正面": "positive", "中性": "neutral", "消极": "negative", "负面": "negative"}
+    raw = aliases.get(raw, raw)
+    return raw if raw in RECORD_SENTIMENTS else "neutral"
+
+
+def _normalize_record_tags(value: Any) -> list[str]:
+    raw_items = value if isinstance(value, list) else []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        tag = _clean_ai_string(item, 24)
+        if tag and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+        if len(tags) >= 8:
+            break
+    return tags
+
+
+def _normalize_record_dates(value: Any) -> list[str]:
+    raw_items = value if isinstance(value, list) else []
+    dates: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items[:8]:
+        normalized = _normalize_ai_due_at(item)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            dates.append(normalized)
+    return dates
+
+
+def sanitize_record_fields(raw: Any, source_text: str = "") -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    summary = _clean_ai_string(data.get("summary") or source_text, 240)
+    return {
+        "summary": summary,
+        "type": _normalize_record_type(data.get("type")),
+        "tags": _normalize_record_tags(data.get("tags")),
+        "dates": _normalize_record_dates(data.get("dates")),
+        "sentiment": _normalize_record_sentiment(data.get("sentiment")),
+    }
+
+
+def _json_list(value: Any) -> list[Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return value if isinstance(value, list) else []
+
+
+def _linked_todos_for_record(conn: sqlite3.Connection, user_id: int, record_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, title, done, due_at, deleted_at
+        FROM todos
+        WHERE owner_user_id = ? AND source_record_id = ? AND deleted_at IS NULL
+        ORDER BY updated_at DESC
+        """,
+        (user_id, record_id),
+    ).fetchall()
+    return [
+        {
+            "id": int(r["id"]),
+            "title": r["title"],
+            "done": bool(r["done"]),
+            "dueAt": r["due_at"],
+            "deleted": bool(r["deleted_at"]),
+        }
+        for r in rows
+    ]
+
+
+def serialize_record_row(conn: sqlite3.Connection, row: sqlite3.Row, include_links: bool = True) -> dict[str, Any]:
+    record_id = int(row["id"])
+    user_id = int(row["owner_user_id"])
+    record = {
+        "id": record_id,
+        "originalInput": row["original_input"],
+        "summary": row["summary"],
+        "type": row["record_type"],
+        "tags": _json_list(row["tags_json"]),
+        "dates": _json_list(row["dates_json"]),
+        "sentiment": row["sentiment"],
+        "aiStatus": row["ai_status"],
+        "aiError": row["ai_error"],
+        "linkedTodos": [],
+        "deletedAt": row["deleted_at"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    if include_links:
+        record["linkedTodos"] = _linked_todos_for_record(conn, user_id, record_id)
+    return record
+
+
+def create_record(conn: sqlite3.Connection, user_id: int, text: str, ai_status: str = "pending") -> dict[str, Any]:
+    now = _utc_now_iso()
+    summary = _clean_ai_string(text, 240)
+    cur = conn.execute(
+        """
+        INSERT INTO records(owner_user_id, original_input, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, 'other', '[]', '[]', 'neutral', ?, '', NULL, ?, ?)
+        """,
+        (user_id, text, summary, ai_status if ai_status in RECORD_STATUSES else "pending", now, now),
+    )
+    row = conn.execute("SELECT * FROM records WHERE id = ?", (int(cur.lastrowid),)).fetchone()
+    return serialize_record_row(conn, row)
+
+
+def update_record_ai_result(conn: sqlite3.Connection, user_id: int, record_id: int, fields: dict[str, Any], status: str, error: str = "") -> dict[str, Any]:
+    now = _utc_now_iso()
+    conn.execute(
+        """
+        UPDATE records
+        SET summary = ?, record_type = ?, tags_json = ?, dates_json = ?, sentiment = ?,
+            ai_status = ?, ai_error = ?, updated_at = ?
+        WHERE id = ? AND owner_user_id = ?
+        """,
+        (
+            fields["summary"],
+            fields["type"],
+            json.dumps(fields["tags"], ensure_ascii=False),
+            json.dumps(fields["dates"], ensure_ascii=False),
+            fields["sentiment"],
+            status,
+            _clean_ai_string(error, 300),
+            now,
+            record_id,
+            user_id,
+        ),
+    )
+    row = conn.execute("SELECT * FROM records WHERE id = ? AND owner_user_id = ?", (record_id, user_id)).fetchone()
+    return serialize_record_row(conn, row)
+
+
 def _strip_json_code_fence(text: str) -> str:
     cleaned = str(text or "").strip()
     if cleaned.startswith("```"):
@@ -480,6 +666,40 @@ def parse_ai_items_from_text(text: str) -> list[dict[str, Any]]:
     except json.JSONDecodeError as exc:
         raise ValueError("AI returned invalid JSON") from exc
     return sanitize_ai_todo_items(parsed)
+
+
+def _record_ai_prompt(now: Optional[datetime] = None) -> str:
+    current = _cn_now(now)
+    tomorrow = current + timedelta(days=1)
+    return (
+        "你是随记收件箱整理助手。把用户输入整理为一条主 record 和可选待办草稿。"
+        f"当前日期时间是北京时间/Asia/Shanghai：{current.strftime('%Y-%m-%d %H:%M')}。"
+        f"今天是 {current.strftime('%Y-%m-%d')}，明天是 {tomorrow.strftime('%Y-%m-%d')}。"
+        "只输出严格 JSON，不要 Markdown，不要解释。JSON 格式："
+        '{"record":{"summary":"一句话摘要","type":"task|note|idea|reminder|event|question|other",'
+        '"tags":["标签"],"dates":["ISO8601时间"],"sentiment":"positive|neutral|negative"},'
+        '"items":[{"title":"任务标题","note":"补充说明","urgency":1,"dueAt":"ISO8601时间或null","subtasks":["子任务"]}]}。'
+        "第一版只能生成一条主 record。无法判断的字段使用 other、neutral、空数组或 null。"
+    )
+
+
+def parse_record_ai_result_from_text(text: str, source_text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    cleaned = _strip_json_code_fence(text)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI returned invalid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("AI returned invalid JSON")
+    record = sanitize_record_fields(parsed.get("record"), source_text)
+    items = sanitize_ai_todo_items(parsed.get("items", []))
+    return record, items
+
+
+def call_xiaomi_record_organizer(text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    content = call_xiaomi_chat_messages(_record_ai_prompt(), text, temperature=0.2)
+    fields, items = parse_record_ai_result_from_text(content, text)
+    return fields, _apply_relative_due_fallback(items, text)
 
 
 def _cn_now(now: Optional[datetime] = None) -> datetime:
@@ -1284,6 +1504,219 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(*json_ok({"user": {"id": user.id, "email": user.email}}))
                 return
 
+            if method == "POST" and path == "/api/records/organize":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                text = str(body.get("text", "")).strip()
+                if not text:
+                    self._send_json(*json_error(400, "text required"))
+                    return
+                if len(text) > AI_MAX_INPUT_CHARS:
+                    self._send_json(*json_error(400, f"text too long, max {AI_MAX_INPUT_CHARS} chars"))
+                    return
+                record = create_record(DB, user.id, text, "pending")
+                record_id = int(record["id"])
+                if not AI_API_KEY:
+                    failed = update_record_ai_result(
+                        DB,
+                        user.id,
+                        record_id,
+                        sanitize_record_fields({}, text),
+                        "failed",
+                        "AI not configured",
+                    )
+                    self._send_json(*json_ok({"record": failed, "items": []}))
+                    return
+                try:
+                    fields, items = call_xiaomi_record_organizer(text)
+                except ValueError:
+                    failed = update_record_ai_result(
+                        DB,
+                        user.id,
+                        record_id,
+                        sanitize_record_fields({}, text),
+                        "failed",
+                        "AI returned invalid JSON",
+                    )
+                    self._send_json(*json_ok({"record": failed, "items": []}))
+                    return
+                except RuntimeError as exc:
+                    failed = update_record_ai_result(
+                        DB,
+                        user.id,
+                        record_id,
+                        sanitize_record_fields({}, text),
+                        "failed",
+                        str(exc),
+                    )
+                    self._send_json(*json_ok({"record": failed, "items": []}))
+                    return
+                ready = update_record_ai_result(DB, user.id, record_id, fields, "ready", "")
+                self._send_json(*json_ok({"record": ready, "items": items}))
+                return
+
+            if method == "GET" and path == "/api/records":
+                filters = ["owner_user_id = ?", "deleted_at IS NULL"]
+                params: list[Any] = [user.id]
+                record_type = (query.get("type") or [""])[0]
+                if record_type:
+                    filters.append("record_type = ?")
+                    params.append(_normalize_record_type(record_type))
+                sentiment = (query.get("sentiment") or [""])[0]
+                if sentiment:
+                    filters.append("sentiment = ?")
+                    params.append(_normalize_record_sentiment(sentiment))
+                tag = _clean_ai_string((query.get("tag") or [""])[0], 24)
+                if tag:
+                    filters.append("tags_json LIKE ?")
+                    params.append(f'%"{tag}"%')
+                linked = (query.get("linked") or [""])[0]
+                if linked in ("1", "true", "yes"):
+                    filters.append(
+                        "EXISTS (SELECT 1 FROM todos t WHERE t.owner_user_id = records.owner_user_id AND t.source_record_id = records.id AND t.deleted_at IS NULL)"
+                    )
+                rows = DB.execute(
+                    f"""
+                    SELECT *
+                    FROM records
+                    WHERE {' AND '.join(filters)}
+                    ORDER BY updated_at DESC
+                    LIMIT 200
+                    """,
+                    tuple(params),
+                ).fetchall()
+                self._send_json(*json_ok({"records": [serialize_record_row(DB, r) for r in rows]}))
+                return
+
+            if path.startswith("/api/records/"):
+                parts = path.strip("/").split("/")
+                if len(parts) >= 3:
+                    record_id_str = parts[2]
+                    if not record_id_str.isdigit():
+                        self._send_json(*json_error(404, "not found"))
+                        return
+                    record_id = int(record_id_str)
+                    record_row = DB.execute(
+                        "SELECT * FROM records WHERE id = ? AND owner_user_id = ?",
+                        (record_id, user.id),
+                    ).fetchone()
+                    if not record_row:
+                        self._send_json(*json_error(404, "not found"))
+                        return
+
+                    if len(parts) == 3:
+                        if method == "GET":
+                            self._send_json(*json_ok({"record": serialize_record_row(DB, record_row)}))
+                            return
+                        if method == "PATCH":
+                            body, err = parse_json_body(self)
+                            if err:
+                                self._send_json(*json_error(400, err))
+                                return
+                            current = {
+                                "summary": record_row["summary"],
+                                "type": record_row["record_type"],
+                                "tags": _json_list(record_row["tags_json"]),
+                                "dates": _json_list(record_row["dates_json"]),
+                                "sentiment": record_row["sentiment"],
+                            }
+                            merged = {
+                                "summary": body.get("summary", current["summary"]),
+                                "type": body.get("type", current["type"]),
+                                "tags": body.get("tags", current["tags"]),
+                                "dates": body.get("dates", current["dates"]),
+                                "sentiment": body.get("sentiment", current["sentiment"]),
+                            }
+                            fields = sanitize_record_fields(merged, record_row["original_input"])
+                            patched = update_record_ai_result(DB, user.id, record_id, fields, record_row["ai_status"], record_row["ai_error"])
+                            self._send_json(*json_ok({"record": patched}))
+                            return
+                        if method == "DELETE":
+                            now = _utc_now_iso()
+                            DB.execute(
+                                "UPDATE records SET deleted_at = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+                                (now, now, record_id, user.id),
+                            )
+                            self._send_json(*json_ok({"deletedAt": now}))
+                            return
+
+                    if len(parts) == 4 and parts[3] == "retry" and method == "POST":
+                        text = record_row["original_input"]
+                        if not AI_API_KEY:
+                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", "AI not configured")
+                            self._send_json(*json_ok({"record": failed, "items": []}))
+                            return
+                        try:
+                            fields, items = call_xiaomi_record_organizer(text)
+                        except ValueError:
+                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", "AI returned invalid JSON")
+                            self._send_json(*json_ok({"record": failed, "items": []}))
+                            return
+                        except RuntimeError as exc:
+                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", str(exc))
+                            self._send_json(*json_ok({"record": failed, "items": []}))
+                            return
+                        ready = update_record_ai_result(DB, user.id, record_id, fields, "ready", "")
+                        self._send_json(*json_ok({"record": ready, "items": items}))
+                        return
+
+                    if len(parts) == 4 and parts[3] == "todos" and method == "POST":
+                        body, err = parse_json_body(self)
+                        if err:
+                            self._send_json(*json_error(400, err))
+                            return
+                        try:
+                            items = sanitize_ai_todo_items(body)
+                        except ValueError as exc:
+                            self._send_json(*json_error(400, str(exc)))
+                            return
+                        now = _utc_now_iso()
+                        saved: list[dict[str, Any]] = []
+                        for item in items:
+                            client_id = secrets.token_urlsafe(18)
+                            cur = DB.execute(
+                                """
+                                INSERT INTO todos(owner_user_id, client_id, source_record_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, 'none', NULL, ?, 0, NULL, NULL, ?, ?)
+                                """,
+                                (user.id, client_id, record_id, item["title"], item["note"], int(item["urgency"]), item["dueAt"], now, now),
+                            )
+                            todo_id = int(cur.lastrowid)
+                            subs = []
+                            for subtask_title in item["subtasks"]:
+                                sub_client_id = secrets.token_urlsafe(18)
+                                sub_cur = DB.execute(
+                                    """
+                                    INSERT INTO subtasks(owner_user_id, client_id, todo_id, title, done, done_at, deleted_at, created_at, updated_at)
+                                    VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+                                    """,
+                                    (user.id, sub_client_id, todo_id, subtask_title, now, now),
+                                )
+                                subs.append({"id": int(sub_cur.lastrowid), "title": subtask_title})
+                            saved.append({"id": todo_id, "clientId": client_id, "title": item["title"], "subtasks": subs})
+                        self._send_json(*json_ok({"todos": saved}))
+                        return
+
+                    if len(parts) == 4 and parts[3] == "sync-dates" and method == "POST":
+                        dates = _json_list(record_row["dates_json"])
+                        due_at = str(dates[0]) if dates else None
+                        if not due_at:
+                            self._send_json(*json_ok({"updated": 0}))
+                            return
+                        now = _utc_now_iso()
+                        cur = DB.execute(
+                            """
+                            UPDATE todos
+                            SET due_at = ?, updated_at = ?
+                            WHERE owner_user_id = ? AND source_record_id = ? AND deleted_at IS NULL
+                            """,
+                            (due_at, now, user.id, record_id),
+                        )
+                        self._send_json(*json_ok({"updated": cur.rowcount}))
+                        return
+
             if method == "POST" and path == "/api/password/change":
                 body, err = parse_json_body(self)
                 if err:
@@ -1372,16 +1805,21 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/todos":
                 rows = DB.execute(
                     """
-                    SELECT id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, created_at, updated_at
-                    FROM todos
-                    WHERE owner_user_id = ?
-                      AND deleted_at IS NULL
+                    SELECT t.id, t.client_id, t.title, t.note, t.urgency, t.repeat_rule, t.reminder_minutes,
+                           t.due_at, t.done, t.done_at, t.created_at, t.updated_at, t.source_record_id,
+                           r.summary AS source_record_summary,
+                           r.deleted_at AS source_record_deleted_at
+                    FROM todos t
+                    LEFT JOIN records r
+                      ON r.id = t.source_record_id AND r.owner_user_id = t.owner_user_id
+                    WHERE t.owner_user_id = ?
+                      AND t.deleted_at IS NULL
                     ORDER BY
-                      done ASC,
-                      CASE WHEN due_at IS NULL THEN 1 ELSE 0 END ASC,
-                      due_at ASC,
-                      urgency DESC,
-                      updated_at DESC
+                      t.done ASC,
+                      CASE WHEN t.due_at IS NULL THEN 1 ELSE 0 END ASC,
+                      t.due_at ASC,
+                      t.urgency DESC,
+                      t.updated_at DESC
                     """,
                     (user.id,),
                 ).fetchall()
@@ -1430,6 +1868,15 @@ class Handler(BaseHTTPRequestHandler):
                             "doneAt": r["done_at"],
                             "createdAt": r["created_at"],
                             "updatedAt": r["updated_at"],
+                            "sourceRecord": (
+                                {
+                                    "id": int(r["source_record_id"]),
+                                    "summary": r["source_record_summary"] or "",
+                                    "deleted": bool(r["source_record_deleted_at"]),
+                                }
+                                if r["source_record_id"] is not None
+                                else None
+                            ),
                             "subtasks": subtasks_by_todo.get(tid, []),
                         }
                     )

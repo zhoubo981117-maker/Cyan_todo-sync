@@ -111,22 +111,41 @@
 
         <aside class="side-pane">
           <section class="panel ai-panel">
-            <div class="panel-title">AI 整理</div>
-            <div class="card-sub">粘贴会议记录、聊天内容或零散想法，生成可确认的代办草稿。</div>
+            <div class="panel-title">随记收件箱</div>
+            <div class="card-sub">保存原始输入，AI 自动整理摘要、类型、标签、日期、情绪和待办草稿。</div>
             <label class="field">
               <span>原始内容</span>
               <textarea id="aiInput" rows="5" placeholder="例如：明天 10 点前整理方案，下午同步给客户，同时让小王补充风险点"></textarea>
             </label>
             <div class="row">
-              <button id="btnAiGenerate" class="btn btn-secondary" type="button">生成草稿</button>
+              <button id="btnAiGenerate" class="btn btn-secondary" type="button">保存并整理</button>
               <button id="btnAiClear" class="btn btn-ghost" type="button">清空</button>
               <div id="aiMsg" class="msg"></div>
             </div>
+            <div id="recordActive" class="record-active hidden"></div>
             <div id="aiDraftList" class="ai-drafts"></div>
             <div class="row ai-save-row hidden" id="aiSaveRow">
               <button id="btnAiSave" class="btn btn-primary" type="button">保存选中</button>
               <div id="aiSaveMsg" class="msg"></div>
             </div>
+            <div class="record-filters">
+              <select id="recordTypeFilter">
+                <option value="">全部类型</option>
+                <option value="task">任务</option>
+                <option value="note">笔记</option>
+                <option value="idea">灵感</option>
+                <option value="reminder">提醒</option>
+                <option value="event">事件</option>
+                <option value="question">问题</option>
+                <option value="other">其他</option>
+              </select>
+              <input id="recordTagFilter" type="text" placeholder="标签" />
+              <select id="recordLinkedFilter">
+                <option value="">全部关联</option>
+                <option value="1">有关联任务</option>
+              </select>
+            </div>
+            <div id="recordList" class="record-list"></div>
           </section>
           <section class="panel daily-plan-panel">
             <div class="panel-title">今日计划</div>

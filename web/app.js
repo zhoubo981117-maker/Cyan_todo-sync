@@ -46,6 +46,32 @@ const API = {
   organizeTodos(text) {
     return this.request("/api/ai/organize", { method: "POST", body: JSON.stringify({ text }) });
   },
+  organizeRecord(text) {
+    return this.request("/api/records/organize", { method: "POST", body: JSON.stringify({ text }) });
+  },
+  listRecords(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.type) params.set("type", filters.type);
+    if (filters.tag) params.set("tag", filters.tag);
+    if (filters.linked) params.set("linked", filters.linked);
+    const qs = params.toString();
+    return this.request(`/api/records${qs ? `?${qs}` : ""}`, { method: "GET" });
+  },
+  patchRecord(id, patch) {
+    return this.request(`/api/records/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+  delRecord(id) {
+    return this.request(`/api/records/${id}`, { method: "DELETE" });
+  },
+  retryRecord(id) {
+    return this.request(`/api/records/${id}/retry`, { method: "POST", body: JSON.stringify({}) });
+  },
+  saveRecordTodos(id, items) {
+    return this.request(`/api/records/${id}/todos`, { method: "POST", body: JSON.stringify({ items }) });
+  },
+  syncRecordDates(id) {
+    return this.request(`/api/records/${id}/sync-dates`, { method: "POST", body: JSON.stringify({}) });
+  },
   dailyPlan() {
     return this.request("/api/ai/daily-plan", { method: "POST", body: JSON.stringify({}) });
   },
@@ -132,6 +158,11 @@ const els = {
   aiSaveRow: document.getElementById("aiSaveRow"),
   btnAiSave: document.getElementById("btnAiSave"),
   aiSaveMsg: document.getElementById("aiSaveMsg"),
+  recordActive: document.getElementById("recordActive"),
+  recordList: document.getElementById("recordList"),
+  recordTypeFilter: document.getElementById("recordTypeFilter"),
+  recordTagFilter: document.getElementById("recordTagFilter"),
+  recordLinkedFilter: document.getElementById("recordLinkedFilter"),
   btnDailyPlan: document.getElementById("btnDailyPlan"),
   dailyPlanMsg: document.getElementById("dailyPlanMsg"),
   dailyPlanResult: document.getElementById("dailyPlanResult"),
@@ -151,6 +182,8 @@ const els = {
 
 let currentTodos = [];
 let aiDrafts = [];
+let currentRecords = [];
+let activeRecord = null;
 const openTodoIds = new Set();
 const notifiedTodoIds = new Set();
 let reminderTimer = null;
@@ -168,6 +201,32 @@ function setMsg(el, s, kind = "info") {
   el.textContent = s || "";
   el.style.color = kind === "error" ? "rgba(255,84,112,.95)" : "rgba(170,180,214,.95)";
 }
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
+const recordTypeLabels = {
+  task: "任务",
+  note: "笔记",
+  idea: "灵感",
+  reminder: "提醒",
+  event: "事件",
+  question: "问题",
+  other: "其他",
+};
+
+const sentimentLabels = {
+  positive: "积极",
+  neutral: "中性",
+  negative: "消极",
+};
 
 function startResetCooldown(seconds = 60) {
   clearInterval(resetCooldownTimer);
@@ -482,6 +541,7 @@ async function refresh() {
   currentTodos = data.todos || [];
   renderTodos();
   renderCalendar();
+  await refreshRecords();
   scheduleReminderCheck();
   setMsg(els.appMsg, `已同步：${new Date().toLocaleTimeString()}`);
 }
@@ -541,7 +601,10 @@ function renderTodos() {
     const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
     const openSubs = subs.filter((s) => !s.done).length;
     const reminderText = reminderLabel(t.reminderMinutes);
-    metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个${reminderText ? ` · ${reminderText}` : ""}`;
+    const sourceText = t.sourceRecord
+      ? ` · 来源：${t.sourceRecord.deleted ? "随记已删除" : (t.sourceRecord.summary || `#${t.sourceRecord.id}`)}`
+      : "";
+    metaEl.textContent = `${subs.length} 个子任务，未完成 ${openSubs} 个${reminderText ? ` · ${reminderText}` : ""}${sourceText}`;
 
     if (openTodoIds.has(t.id)) subtasksWrap.classList.remove("hidden");
     titleBtn.addEventListener("click", () => {
@@ -702,6 +765,147 @@ function renderAiDrafts() {
   });
 }
 
+function renderActiveRecord() {
+  if (!activeRecord) {
+    els.recordActive.classList.add("hidden");
+    els.recordActive.innerHTML = "";
+    return;
+  }
+  els.recordActive.classList.remove("hidden");
+  const tags = (activeRecord.tags || []).map((x) => `<span class="badge">${escapeHtml(x)}</span>`).join("");
+  const dates = (activeRecord.dates || []).map((x) => `<span class="badge due">${fmtDue(x)}</span>`).join("");
+  const linked = activeRecord.linkedTodos || [];
+  els.recordActive.innerHTML = `
+    <div class="record-head">
+      <strong>${escapeHtml(activeRecord.summary || "未整理摘要")}</strong>
+      <span class="badge">${recordTypeLabels[activeRecord.type] || "其他"}</span>
+      <span class="badge">${sentimentLabels[activeRecord.sentiment] || "中性"}</span>
+      <span class="badge ${activeRecord.aiStatus === "failed" ? "record-failed" : ""}">${activeRecord.aiStatus === "failed" ? "整理失败" : "已整理"}</span>
+    </div>
+    <div class="record-raw">${escapeHtml(activeRecord.originalInput || "")}</div>
+    <div class="record-tags">${tags || '<span class="hint">无标签</span>'}${dates}</div>
+    ${activeRecord.aiError ? `<div class="msg record-error">${escapeHtml(activeRecord.aiError)}</div>` : ""}
+    <div class="record-links">${linked.length ? `关联任务：${linked.map((x) => escapeHtml(x.title)).join("、")}` : "暂无关联任务"}</div>
+    <div class="row">
+      <button class="btn btn-ghost btn-mini record-edit" type="button">编辑</button>
+      <button class="btn btn-ghost btn-mini record-retry" type="button">重试整理</button>
+      <button class="btn btn-ghost btn-mini record-sync" type="button">同步日期到任务</button>
+      <button class="btn btn-ghost btn-mini record-delete" type="button">删除记录</button>
+    </div>
+  `;
+  els.recordActive.querySelector(".record-edit").addEventListener("click", () => editActiveRecord());
+  els.recordActive.querySelector(".record-retry").addEventListener("click", () => retryActiveRecord());
+  els.recordActive.querySelector(".record-sync").addEventListener("click", () => syncActiveRecordDates());
+  els.recordActive.querySelector(".record-delete").addEventListener("click", () => deleteActiveRecord());
+}
+
+function renderRecords() {
+  els.recordList.innerHTML = "";
+  if (!currentRecords.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "暂无随记";
+    els.recordList.appendChild(empty);
+    return;
+  }
+  for (const record of currentRecords) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "record-item";
+    card.innerHTML = `
+      <strong>${escapeHtml(record.summary || record.originalInput || "未命名随记")}</strong>
+      <span>${recordTypeLabels[record.type] || "其他"} · ${sentimentLabels[record.sentiment] || "中性"} · ${(record.tags || []).join(" / ") || "无标签"}</span>
+    `;
+    card.addEventListener("click", () => {
+      activeRecord = record;
+      renderActiveRecord();
+    });
+    els.recordList.appendChild(card);
+  }
+}
+
+async function refreshRecords() {
+  if (!els.recordList) return;
+  const data = await API.listRecords({
+    type: els.recordTypeFilter.value,
+    tag: (els.recordTagFilter.value || "").trim(),
+    linked: els.recordLinkedFilter.value,
+  });
+  currentRecords = data.records || [];
+  if (activeRecord) {
+    activeRecord = currentRecords.find((x) => x.id === activeRecord.id) || activeRecord;
+  }
+  renderRecords();
+  renderActiveRecord();
+}
+
+function editActiveRecord() {
+  if (!activeRecord) return;
+  const summary = prompt("摘要", activeRecord.summary || "");
+  if (summary === null) return;
+  const tags = prompt("标签，用逗号分隔", (activeRecord.tags || []).join(","));
+  if (tags === null) return;
+  API.patchRecord(activeRecord.id, {
+    summary,
+    tags: tags.split(",").map((x) => x.trim()).filter(Boolean),
+    type: activeRecord.type,
+    dates: activeRecord.dates || [],
+    sentiment: activeRecord.sentiment,
+  }).then((data) => {
+    activeRecord = data.record;
+    return refreshRecords();
+  }).catch((e) => setMsg(els.aiMsg, e.message, "error"));
+}
+
+async function retryActiveRecord() {
+  if (!activeRecord) return;
+  setMsg(els.aiMsg, "AI 正在重新整理...");
+  try {
+    const data = await API.retryRecord(activeRecord.id);
+    activeRecord = data.record;
+    aiDrafts = normalizeDrafts(data.items || []);
+    renderAiDrafts();
+    await refreshRecords();
+    setMsg(els.aiMsg, activeRecord.aiStatus === "failed" ? "整理失败，已保留原文" : "已重新整理");
+  } catch (e) {
+    setMsg(els.aiMsg, e.message, "error");
+  }
+}
+
+async function syncActiveRecordDates() {
+  if (!activeRecord) return;
+  try {
+    const data = await API.syncRecordDates(activeRecord.id);
+    setMsg(els.aiMsg, `已同步 ${data.updated || 0} 个任务`);
+    await refresh();
+  } catch (e) {
+    setMsg(els.aiMsg, e.message, "error");
+  }
+}
+
+async function deleteActiveRecord() {
+  if (!activeRecord || !confirm("删除这条随记？关联任务会保留。")) return;
+  try {
+    await API.delRecord(activeRecord.id);
+    activeRecord = null;
+    await refreshRecords();
+    await refresh();
+  } catch (e) {
+    setMsg(els.aiMsg, e.message, "error");
+  }
+}
+
+function normalizeDrafts(items) {
+  return (items || []).map((item) => ({
+    selected: true,
+    title: item.title || "",
+    note: item.note || "",
+    urgency: Number(item.urgency ?? 1),
+    dueAt: item.dueAt || null,
+    subtasks: Array.isArray(item.subtasks) ? item.subtasks : [],
+  })).filter((item) => item.title.trim());
+}
+
 async function generateAiDrafts() {
   const text = (els.aiInput.value || "").trim();
   setMsg(els.aiMsg, "");
@@ -711,19 +915,15 @@ async function generateAiDrafts() {
     return;
   }
   els.btnAiGenerate.disabled = true;
-  setMsg(els.aiMsg, "AI 正在整理...");
+  setMsg(els.aiMsg, "正在保存并整理...");
   try {
-    const data = await API.organizeTodos(text);
-    aiDrafts = (data.items || []).map((item) => ({
-      selected: true,
-      title: item.title || "",
-      note: item.note || "",
-      urgency: Number(item.urgency ?? 1),
-      dueAt: item.dueAt || null,
-      subtasks: Array.isArray(item.subtasks) ? item.subtasks : [],
-    })).filter((item) => item.title.trim());
+    const data = await API.organizeRecord(text);
+    activeRecord = data.record || null;
+    aiDrafts = normalizeDrafts(data.items || []);
     renderAiDrafts();
-    setMsg(els.aiMsg, aiDrafts.length ? `已生成 ${aiDrafts.length} 个草稿` : "AI 没有识别到明确代办");
+    renderActiveRecord();
+    await refreshRecords();
+    setMsg(els.aiMsg, aiDrafts.length ? `已保存随记，并生成 ${aiDrafts.length} 个草稿` : "已保存随记，暂无明确代办草稿");
   } catch (e) {
     setMsg(els.aiMsg, e.message, "error");
   } finally {
@@ -740,18 +940,22 @@ async function saveAiDrafts() {
   els.btnAiSave.disabled = true;
   setMsg(els.aiSaveMsg, "保存中...");
   try {
-    for (const draft of selected) {
-      const todo = await API.addTodo({
-        title: draft.title.trim(),
-        note: (draft.note || "").trim(),
-        urgency: Number(draft.urgency || 1),
-        repeatRule: "none",
-        reminderMinutes: null,
-        dueAt: draft.dueAt || null,
-      });
-      for (const subtask of draft.subtasks || []) {
-        const title = String(subtask || "").trim();
-        if (title) await API.addSub(todo.id, title);
+    if (activeRecord) {
+      await API.saveRecordTodos(activeRecord.id, selected);
+    } else {
+      for (const draft of selected) {
+        const todo = await API.addTodo({
+          title: draft.title.trim(),
+          note: (draft.note || "").trim(),
+          urgency: Number(draft.urgency || 1),
+          repeatRule: "none",
+          reminderMinutes: null,
+          dueAt: draft.dueAt || null,
+        });
+        for (const subtask of draft.subtasks || []) {
+          const title = String(subtask || "").trim();
+          if (title) await API.addSub(todo.id, title);
+        }
       }
     }
     aiDrafts = [];
@@ -997,11 +1201,16 @@ els.btnAiGenerate.addEventListener("click", () => generateAiDrafts());
 els.btnAiClear.addEventListener("click", () => {
   els.aiInput.value = "";
   aiDrafts = [];
+  activeRecord = null;
   renderAiDrafts();
+  renderActiveRecord();
   setMsg(els.aiMsg, "");
   setMsg(els.aiSaveMsg, "");
 });
 els.btnAiSave.addEventListener("click", () => saveAiDrafts());
+els.recordTypeFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
+els.recordLinkedFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
+els.recordTagFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
 els.btnDailyPlan.addEventListener("click", () => generateDailyPlan());
 
 els.btnAddTodo.addEventListener("click", async () => {

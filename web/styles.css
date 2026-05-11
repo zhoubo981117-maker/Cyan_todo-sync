@@ -197,6 +197,34 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
 
 .ai-panel{display:grid; gap:12px}
 .ai-drafts{display:grid; gap:10px}
+.record-active,.record-item{
+  display:grid;
+  gap:8px;
+  padding:12px;
+  border:1px solid rgba(40,54,80,.72);
+  border-radius:8px;
+  background:rgba(7,12,23,.38);
+}
+.record-head,.record-tags{
+  display:flex;
+  gap:6px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.record-head strong{font-size:14px}
+.record-raw,.record-links{color:var(--muted); font-size:12px; overflow-wrap:anywhere}
+.record-error{color:var(--danger) !important}
+.record-failed{border-color:rgba(255,90,115,.58); color:var(--danger)}
+.record-filters{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.record-list{display:grid; gap:8px}
+.record-item{
+  width:100%;
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+}
+.record-item strong{font-size:13px}
+.record-item span{color:var(--muted); font-size:12px}
 .ai-draft{
   display:grid;
   gap:10px;
@@ -363,6 +391,7 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
   .due-card{padding:10px; gap:8px}
   .due-presets{gap:6px}
   .notification-panel .card-sub{font-size:11px}
+  .record-filters{grid-template-columns:1fr}
   .sub{grid-template-columns:28px 1fr; gap:8px}
   .sub .sub-edit,.sub .sub-del{grid-column:auto}
 }
