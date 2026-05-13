@@ -841,6 +841,8 @@ function renderRecords() {
     `;
     card.addEventListener("click", () => {
       activeRecord = record;
+      aiDrafts = normalizeDrafts(record.aiItems || []);
+      renderAiDrafts();
       renderActiveRecord();
     });
     els.recordList.appendChild(card);
@@ -899,8 +901,11 @@ async function syncActiveRecordDates() {
   if (!activeRecord) return;
   try {
     const data = await API.syncRecordDates(activeRecord.id);
-    setMsg(els.aiMsg, `已同步 ${data.updated || 0} 个任务`);
+    const created = Number(data.created || 0);
+    const updated = Number(data.updated || 0);
+    setMsg(els.aiMsg, created ? `已创建 ${created} 个任务，同步 ${updated} 个截止时间` : `已同步 ${updated} 个任务`);
     await refresh();
+    await refreshRecords();
   } catch (e) {
     setMsg(els.aiMsg, e.message, "error");
   }

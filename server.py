@@ -338,6 +338,7 @@ def init_db(conn: sqlite3.Connection) -> None:
           record_type TEXT NOT NULL DEFAULT 'other',
           tags_json TEXT NOT NULL DEFAULT '[]',
           dates_json TEXT NOT NULL DEFAULT '[]',
+          ai_items_json TEXT NOT NULL DEFAULT '[]',
           sentiment TEXT NOT NULL DEFAULT 'neutral',
           ai_status TEXT NOT NULL DEFAULT 'pending',
           ai_error TEXT NOT NULL DEFAULT '',
@@ -393,6 +394,8 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE records ADD COLUMN source_event_id TEXT NOT NULL DEFAULT ''")
     if not _column_exists(conn, "records", "source_sender_json"):
         conn.execute("ALTER TABLE records ADD COLUMN source_sender_json TEXT NOT NULL DEFAULT '{}'")
+    if not _column_exists(conn, "records", "ai_items_json"):
+        conn.execute("ALTER TABLE records ADD COLUMN ai_items_json TEXT NOT NULL DEFAULT '[]'")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_todos_owner_client_id ON todos(owner_user_id, client_id)"
@@ -623,6 +626,7 @@ def serialize_record_row(conn: sqlite3.Connection, row: sqlite3.Row, include_lin
         "type": row["record_type"],
         "tags": _json_list(row["tags_json"]),
         "dates": _json_list(row["dates_json"]),
+        "aiItems": sanitize_ai_todo_items(_json_list(row["ai_items_json"])),
         "sentiment": row["sentiment"],
         "aiStatus": row["ai_status"],
         "aiError": row["ai_error"],
@@ -652,8 +656,8 @@ def create_record(
     sender_json = json.dumps(source_sender if isinstance(source_sender, dict) else {}, ensure_ascii=False)
     cur = conn.execute(
         """
-        INSERT INTO records(owner_user_id, original_input, source, source_event_id, source_sender_json, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'other', '[]', '[]', 'neutral', ?, '', NULL, ?, ?)
+        INSERT INTO records(owner_user_id, original_input, source, source_event_id, source_sender_json, summary, record_type, tags_json, dates_json, ai_items_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'other', '[]', '[]', '[]', 'neutral', ?, '', NULL, ?, ?)
         """,
         (
             user_id,
@@ -671,13 +675,22 @@ def create_record(
     return serialize_record_row(conn, row)
 
 
-def update_record_ai_result(conn: sqlite3.Connection, user_id: int, record_id: int, fields: dict[str, Any], status: str, error: str = "") -> dict[str, Any]:
+def update_record_ai_result(
+    conn: sqlite3.Connection,
+    user_id: int,
+    record_id: int,
+    fields: dict[str, Any],
+    status: str,
+    error: str = "",
+    items: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     now = _utc_now_iso()
+    clean_items = sanitize_ai_todo_items(items or [])
     conn.execute(
         """
         UPDATE records
         SET summary = ?, record_type = ?, tags_json = ?, dates_json = ?, sentiment = ?,
-            ai_status = ?, ai_error = ?, updated_at = ?
+            ai_items_json = ?, ai_status = ?, ai_error = ?, updated_at = ?
         WHERE id = ? AND owner_user_id = ?
         """,
         (
@@ -686,6 +699,7 @@ def update_record_ai_result(conn: sqlite3.Connection, user_id: int, record_id: i
             json.dumps(fields["tags"], ensure_ascii=False),
             json.dumps(fields["dates"], ensure_ascii=False),
             fields["sentiment"],
+            json.dumps(clean_items, ensure_ascii=False),
             status,
             _clean_ai_string(error, 300),
             now,
@@ -730,7 +744,7 @@ def organize_record_ai(conn: sqlite3.Connection, user_id: int, record_id: int, t
             str(exc),
         )
         return failed, []
-    ready = update_record_ai_result(conn, user_id, record_id, fields, "ready", "")
+    ready = update_record_ai_result(conn, user_id, record_id, fields, "ready", "", items)
     return ready, items
 
 
@@ -955,6 +969,40 @@ def create_todo_item_for_email(conn: sqlite3.Connection, default_email: str, ite
     }
 
 
+def save_record_todo_items(
+    conn: sqlite3.Connection,
+    user_id: int,
+    record_id: int,
+    items: Any,
+) -> list[dict[str, Any]]:
+    clean_items = sanitize_ai_todo_items(items)
+    now = _utc_now_iso()
+    saved: list[dict[str, Any]] = []
+    for item in clean_items:
+        client_id = secrets.token_urlsafe(18)
+        cur = conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, source_record_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'none', NULL, ?, 0, NULL, NULL, ?, ?)
+            """,
+            (user_id, client_id, record_id, item["title"], item["note"], int(item["urgency"]), item["dueAt"], now, now),
+        )
+        todo_id = int(cur.lastrowid)
+        subs = []
+        for subtask_title in item["subtasks"]:
+            sub_client_id = secrets.token_urlsafe(18)
+            sub_cur = conn.execute(
+                """
+                INSERT INTO subtasks(owner_user_id, client_id, todo_id, title, done, done_at, deleted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+                """,
+                (user_id, sub_client_id, todo_id, subtask_title, now, now),
+            )
+            subs.append({"id": int(sub_cur.lastrowid), "title": subtask_title})
+        saved.append({"id": todo_id, "clientId": client_id, "title": item["title"], "subtasks": subs})
+    return saved
+
+
 def parse_feishu_todo_command(text: str) -> Optional[str]:
     normalized = " ".join(str(text or "").strip().split())
     if not normalized:
@@ -973,17 +1021,21 @@ def create_feishu_todo(conn: sqlite3.Connection, default_email: str, title: str)
     clean_title = str(title or "").strip()
     if not clean_title:
         raise ValueError("title required")
-    return create_todo_item_for_email(
-        conn,
-        default_email,
-        {"title": clean_title, "note": "Created from Feishu", "urgency": 1, "dueAt": None, "subtasks": []},
-    )
+    email = normalize_email(default_email)
+    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise ValueError("default account not found")
+    return create_record(conn, int(row["id"]), clean_title, "pending", source="feishu")
 
 
 def create_feishu_ai_todos(conn: sqlite3.Connection, default_email: str, text: str) -> list[dict[str, Any]]:
-    content = call_xiaomi_chat_completion(text)
-    items = _apply_relative_due_fallback(parse_ai_items_from_text(content), text)
-    return [create_todo_item_for_email(conn, default_email, item, "Created from Feishu AI") for item in items]
+    email = normalize_email(default_email)
+    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise ValueError("default account not found")
+    record = create_record(conn, int(row["id"]), str(text or "").strip(), "processing", source="feishu")
+    organize_record_ai(conn, int(row["id"]), int(record["id"]), str(text or "").strip())
+    return []
 
 
 def _extract_feishu_message(body: dict[str, Any]) -> dict[str, Any]:
@@ -1808,42 +1860,32 @@ class Handler(BaseHTTPRequestHandler):
                             self._send_json(*json_error(400, err))
                             return
                         try:
-                            items = sanitize_ai_todo_items(body)
+                            saved = save_record_todo_items(DB, user.id, record_id, body)
                         except ValueError as exc:
                             self._send_json(*json_error(400, str(exc)))
                             return
-                        now = _utc_now_iso()
-                        saved: list[dict[str, Any]] = []
-                        for item in items:
-                            client_id = secrets.token_urlsafe(18)
-                            cur = DB.execute(
-                                """
-                                INSERT INTO todos(owner_user_id, client_id, source_record_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, 'none', NULL, ?, 0, NULL, NULL, ?, ?)
-                                """,
-                                (user.id, client_id, record_id, item["title"], item["note"], int(item["urgency"]), item["dueAt"], now, now),
-                            )
-                            todo_id = int(cur.lastrowid)
-                            subs = []
-                            for subtask_title in item["subtasks"]:
-                                sub_client_id = secrets.token_urlsafe(18)
-                                sub_cur = DB.execute(
-                                    """
-                                    INSERT INTO subtasks(owner_user_id, client_id, todo_id, title, done, done_at, deleted_at, created_at, updated_at)
-                                    VALUES (?, ?, ?, ?, 0, NULL, NULL, ?, ?)
-                                    """,
-                                    (user.id, sub_client_id, todo_id, subtask_title, now, now),
-                                )
-                                subs.append({"id": int(sub_cur.lastrowid), "title": subtask_title})
-                            saved.append({"id": todo_id, "clientId": client_id, "title": item["title"], "subtasks": subs})
                         self._send_json(*json_ok({"todos": saved}))
                         return
 
                     if len(parts) == 4 and parts[3] == "sync-dates" and method == "POST":
+                        linked_count = DB.execute(
+                            """
+                            SELECT COUNT(*) AS c
+                            FROM todos
+                            WHERE owner_user_id = ? AND source_record_id = ? AND deleted_at IS NULL
+                            """,
+                            (user.id, record_id),
+                        ).fetchone()["c"]
+                        created = []
+                        if int(linked_count) == 0:
+                            try:
+                                created = save_record_todo_items(DB, user.id, record_id, _json_list(record_row["ai_items_json"]))
+                            except ValueError:
+                                created = []
                         dates = _json_list(record_row["dates_json"])
                         due_at = str(dates[0]) if dates else None
                         if not due_at:
-                            self._send_json(*json_ok({"updated": 0}))
+                            self._send_json(*json_ok({"created": len(created), "updated": 0, "todos": created}))
                             return
                         now = _utc_now_iso()
                         cur = DB.execute(
@@ -1854,7 +1896,7 @@ class Handler(BaseHTTPRequestHandler):
                             """,
                             (due_at, now, user.id, record_id),
                         )
-                        self._send_json(*json_ok({"updated": cur.rowcount}))
+                        self._send_json(*json_ok({"created": len(created), "updated": cur.rowcount, "todos": created}))
                         return
 
             if method == "POST" and path == "/api/password/change":

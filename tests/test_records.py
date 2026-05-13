@@ -140,6 +140,7 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertEqual(data["record"]["dates"], ["2026-05-11T10:00:00+08:00"])
         self.assertEqual(data["record"]["sentiment"], "neutral")
         self.assertEqual(data["record"]["aiStatus"], "ready")
+        self.assertEqual(data["record"]["aiItems"][0]["title"], data["items"][0]["title"])
         self.assertEqual(data["items"][0]["title"], "整理报价")
 
     def test_invalid_ai_json_keeps_failed_record(self):
@@ -170,6 +171,46 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertEqual(int(todo["source_record_id"]), record_id)
         subtasks = self.conn.execute("SELECT title FROM subtasks").fetchall()
         self.assertEqual([r["title"] for r in subtasks], ["补风险点"])
+
+    def test_sync_record_creates_todos_from_persisted_ai_items(self):
+        server.AI_API_KEY = "test"
+        content = json.dumps(
+            {
+                "record": {
+                    "summary": "basketball plan",
+                    "type": "event",
+                    "tags": ["sport"],
+                    "dates": ["2026-05-14T17:00:00+08:00"],
+                    "sentiment": "neutral",
+                },
+                "items": [
+                    {
+                        "title": "play basketball",
+                        "note": "bring shoes",
+                        "urgency": 1,
+                        "dueAt": "2026-05-14T17:00:00+08:00",
+                        "subtasks": ["pack shoes"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        with patch.object(server, "call_xiaomi_chat_messages", return_value=content):
+            status, data = self.request("POST", "/api/records/organize", {"text": "basketball tomorrow 5pm"})
+        record_id = data["record"]["id"]
+
+        status, synced = self.request("POST", f"/api/records/{record_id}/sync-dates", {})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(synced["created"], 1)
+        self.assertEqual(synced["updated"], 1)
+        todo = self.conn.execute("SELECT title, note, due_at, source_record_id FROM todos").fetchone()
+        self.assertEqual(todo["title"], "play basketball")
+        self.assertEqual(todo["note"], "bring shoes")
+        self.assertEqual(todo["due_at"], "2026-05-14T17:00:00+08:00")
+        self.assertEqual(int(todo["source_record_id"]), record_id)
+        subtask = self.conn.execute("SELECT title FROM subtasks").fetchone()
+        self.assertEqual(subtask["title"], "pack shoes")
 
     def test_filters_details_and_todo_source(self):
         r1 = self._insert_record("任务记录", "task", ["客户"], "neutral")

@@ -215,45 +215,53 @@ class FeishuTests(unittest.TestCase):
         self.assertEqual(count, 1)
 
     def test_create_feishu_todo_for_default_account(self):
-        todo = server.create_feishu_todo(self.conn, "me@example.com", "买菜")
+        record = server.create_feishu_todo(self.conn, "me@example.com", "buy milk")
 
-        self.assertEqual(todo["title"], "买菜")
-        row = self.conn.execute(
-            "SELECT title, urgency, note FROM todos WHERE owner_user_id = ?",
-            (todo["ownerUserId"],),
-        ).fetchone()
-        self.assertEqual(row["title"], "买菜")
-        self.assertEqual(row["urgency"], 1)
-        self.assertIn("Created from Feishu", row["note"])
-
+        self.assertEqual(record["source"], "feishu")
+        self.assertEqual(record["originalInput"], "buy milk")
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        self.assertEqual(todo_count, 0)
     def test_create_feishu_todo_rejects_unknown_default_account(self):
         with self.assertRaisesRegex(ValueError, "default account not found"):
             server.create_feishu_todo(self.conn, "missing@example.com", "买菜")
 
-    def test_create_feishu_ai_todos_creates_subtasks_and_due_time(self):
+    def test_create_feishu_ai_todos_creates_record_without_direct_todos(self):
+        server.AI_API_KEY = "test"
         content = json.dumps(
             {
-                "items": [
-                    {
-                        "title": "打篮球",
-                        "note": "带衣服",
-                        "urgency": 1,
-                        "dueAt": "2026-05-06T16:00:00+08:00",
-                        "subtasks": ["带衣服"],
-                    }
-                ]
+                "record": {"summary": "basketball", "type": "event", "tags": [], "dates": [], "sentiment": "neutral"},
+                "items": [{"title": "play basketball", "note": "bring clothes", "urgency": 1, "dueAt": "2026-05-06T16:00:00+08:00", "subtasks": ["bring clothes"]}],
             },
             ensure_ascii=False,
         )
 
-        with patch.object(server, "call_xiaomi_chat_completion", return_value=content):
-            todos = server.create_feishu_ai_todos(self.conn, "me@example.com", "明天下午16点打篮球，带衣服")
+        with patch.object(server, "call_xiaomi_chat_messages", return_value=content):
+            todos = server.create_feishu_ai_todos(self.conn, "me@example.com", "basketball tomorrow")
 
-        self.assertEqual(len(todos), 1)
-        self.assertEqual(todos[0]["title"], "打篮球")
-        self.assertEqual(todos[0]["subtasks"], ["带衣服"])
-        sub_count = self.conn.execute("SELECT COUNT(*) AS c FROM subtasks").fetchone()["c"]
-        self.assertEqual(sub_count, 1)
+        self.assertEqual(todos, [])
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        record = self.conn.execute("SELECT source, ai_items_json FROM records").fetchone()
+        self.assertEqual(todo_count, 0)
+        self.assertEqual(record["source"], "feishu")
+        self.assertIn("play basketball", record["ai_items_json"])
+    def test_legacy_feishu_ai_helper_does_not_create_direct_todos(self):
+        server.AI_API_KEY = "test"
+        content = json.dumps(
+            {
+                "record": {"summary": "legacy note", "type": "task", "tags": [], "dates": [], "sentiment": "neutral"},
+                "items": [{"title": "legacy todo", "urgency": 1, "dueAt": None, "subtasks": []}],
+            },
+            ensure_ascii=False,
+        )
+
+        with patch.object(server, "call_xiaomi_chat_messages", return_value=content):
+            result = server.create_feishu_ai_todos(self.conn, "me@example.com", "legacy input")
+
+        self.assertEqual(result, [])
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        record_count = self.conn.execute("SELECT COUNT(*) AS c FROM records WHERE source = 'feishu'").fetchone()["c"]
+        self.assertEqual(todo_count, 0)
+        self.assertEqual(record_count, 1)
 
 
 if __name__ == "__main__":
