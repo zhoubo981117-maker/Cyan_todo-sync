@@ -9,7 +9,7 @@ import server
 
 
 LOG = logging.getLogger("todo-sync.feishu")
-RECEIVED_REPLY_TEXT = os.environ.get("TODO_FEISHU_RECEIVED_REPLY", "✅ 收到").strip() or "✅ 收到"
+RECEIVED_REPLY_TEXT = os.environ.get("TODO_FEISHU_RECEIVED_REPLY", "已收到").strip() or "已收到"
 
 
 def _event_to_dict(data: Any) -> dict[str, Any]:
@@ -38,19 +38,7 @@ def _event_to_dict(data: Any) -> dict[str, Any]:
 
 
 def handle_feishu_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    text = server._extract_feishu_message_text(payload)
-    if not text.strip():
-        return {"handled": False, "reason": "empty message"}
-
-    if server.AI_API_KEY:
-        todos = server.create_feishu_ai_todos(server.DB, server.FEISHU_DEFAULT_EMAIL, text)
-        return {"handled": bool(todos), "todos": todos}
-
-    title = server.parse_feishu_todo_command(text)
-    if not title:
-        return {"handled": False, "reason": "unsupported command"}
-    todo = server.create_feishu_todo(server.DB, server.FEISHU_DEFAULT_EMAIL, title)
-    return {"handled": True, "todo": todo}
+    return server.handle_feishu_inbox_event(server.DB, server.FEISHU_DEFAULT_EMAIL, payload)
 
 
 def extract_message_id(payload: dict[str, Any]) -> str:
@@ -121,12 +109,13 @@ def main() -> int:
 
     def on_message(data: Any) -> None:
         payload = _event_to_dict(data)
-        reply_to_feishu_message(api_client, extract_message_id(payload))
         try:
             result = handle_feishu_event_payload(payload)
+            reply_to_feishu_message(api_client, extract_message_id(payload), str(result.get("replyText") or RECEIVED_REPLY_TEXT))
             LOG.info("processed Feishu message: %s", json.dumps(result, ensure_ascii=False, default=str))
         except Exception:
             LOG.exception("failed to process Feishu message")
+            reply_to_feishu_message(api_client, extract_message_id(payload), "已收到，但处理失败。请稍后到 Web/PWA 查看。")
 
     event_handler = (
         lark.EventDispatcherHandler.builder("", "")

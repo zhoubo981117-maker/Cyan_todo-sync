@@ -155,9 +155,12 @@ If you are testing with IP + HTTP (e.g. `http://1.2.3.4:8787`):
 - Pull: `GET /api/sync/pull?since=<utc-iso>` (returns todos/subtasks updated since, including tombstones)
 - Push: `POST /api/sync/push` with `{ "todos": [...], "subtasks": [...] }`
 
-## Feishu Bot Commands
+## Feishu Inbox
 
-You can let a Feishu custom app bot create todos by sending message events to this server.
+You can let a Feishu custom app bot capture notes by sending message events to this server.
+Valid Feishu text messages are saved into the 随记收件箱 as records first. If AI is configured, the server immediately organizes the record into summary, type, tags, dates, sentiment, and optional todo drafts.
+
+Feishu messages do **not** create formal todos directly. Open the Web/PWA inbox, review the record, then save selected drafts as formal todos.
 
 Configure the app service with:
 
@@ -175,15 +178,9 @@ https://todo.example.com/feishu
 
 Do not configure an Encrypt Key for this first version. The server verifies the Feishu Verification Token, but it does not decrypt encrypted event payloads.
 
-All Feishu-created todos are saved to the Todo account configured by `TODO_FEISHU_DEFAULT_EMAIL`.
+All Feishu-created records are saved to the Todo account configured by `TODO_FEISHU_DEFAULT_EMAIL`. The record also stores Feishu sender metadata and the Feishu message ID for duplicate delivery protection.
 
-If Xiaomi MiMo AI is configured, Feishu text messages are organized with the same AI todo organizer used by the web app. A single message can create multiple todos with subtasks and due times. If AI is not configured, the basic command fallback supports:
-
-```text
-新增任务 买菜
-todo 买菜
-任务 买菜
-```
+The bot replies after processing. Success means the message was saved and organized into reviewable drafts; failure means the original input was preserved but AI organization needs to be retried from Web/PWA.
 
 ### Feishu Long Connection
 
@@ -217,7 +214,7 @@ systemctl status todo-sync-feishu --no-pager
 journalctl -u todo-sync-feishu -n 100 --no-pager
 ```
 
-After the worker is running, return to Feishu Open Platform and re-check the long connection status. New bot messages are organized into todos for `TODO_FEISHU_DEFAULT_EMAIL`.
+After the worker is running, return to Feishu Open Platform and re-check the long connection status. New bot messages are saved into 随记收件箱 for `TODO_FEISHU_DEFAULT_EMAIL`, then organized into reviewable drafts when AI is configured.
 
 ## Daily Plan
 

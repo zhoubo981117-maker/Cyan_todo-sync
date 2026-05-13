@@ -35,11 +35,12 @@ class FeishuClientTests(unittest.TestCase):
         server.AI_API_KEY = self.old_ai_key
         self.conn.close()
 
-    def test_handle_event_creates_todo_from_basic_command(self):
+    def test_handle_event_creates_record_from_text(self):
         server.AI_API_KEY = ""
         payload = {
             "event": {
                 "message": {
+                    "message_id": "om_client_record",
                     "message_type": "text",
                     "content": json.dumps({"text": "todo buy milk"}),
                 }
@@ -49,13 +50,18 @@ class FeishuClientTests(unittest.TestCase):
         result = feishu_client.handle_feishu_event_payload(payload)
 
         self.assertTrue(result["handled"])
-        self.assertEqual(result["todo"]["title"], "buy milk")
+        self.assertEqual(result["aiStatus"], "failed")
+        self.assertEqual(result["record"]["source"], "feishu")
+        self.assertIn("replyText", result)
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        self.assertEqual(todo_count, 0)
 
-    def test_handle_event_uses_ai_when_configured(self):
+    def test_handle_event_uses_record_ai_when_configured(self):
         server.AI_API_KEY = "test-key"
         payload = {
             "event": {
                 "message": {
+                    "message_id": "om_client_ai",
                     "message_type": "text",
                     "content": json.dumps({"text": "basketball tomorrow 16:00"}),
                 }
@@ -63,6 +69,13 @@ class FeishuClientTests(unittest.TestCase):
         }
         content = json.dumps(
             {
+                "record": {
+                    "summary": "basketball plan",
+                    "type": "task",
+                    "tags": ["sport"],
+                    "dates": ["2026-05-06T16:00:00+08:00"],
+                    "sentiment": "neutral",
+                },
                 "items": [
                     {
                         "title": "play basketball",
@@ -75,12 +88,34 @@ class FeishuClientTests(unittest.TestCase):
             }
         )
 
-        with patch.object(server, "call_xiaomi_chat_completion", return_value=content):
+        with patch.object(server, "call_xiaomi_chat_messages", return_value=content):
             result = feishu_client.handle_feishu_event_payload(payload)
 
         self.assertTrue(result["handled"])
-        self.assertEqual(result["todos"][0]["title"], "play basketball")
-        self.assertEqual(result["todos"][0]["subtasks"], ["bring clothes"])
+        self.assertEqual(result["aiStatus"], "ready")
+        self.assertEqual(result["record"]["summary"], "basketball plan")
+        self.assertEqual(result["items"][0]["title"], "play basketball")
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        self.assertEqual(todo_count, 0)
+
+    def test_handle_event_duplicate_returns_duplicate_reply(self):
+        server.AI_API_KEY = ""
+        payload = {
+            "event": {
+                "message": {
+                    "message_id": "om_client_dup",
+                    "message_type": "text",
+                    "content": json.dumps({"text": "same text"}),
+                }
+            }
+        }
+
+        first = feishu_client.handle_feishu_event_payload(payload)
+        second = feishu_client.handle_feishu_event_payload(payload)
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertIn("replyText", second)
 
     def test_extract_message_id(self):
         payload = {"event": {"message": {"message_id": "om_123"}}}

@@ -215,6 +215,7 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
 .record-raw,.record-links{color:var(--muted); font-size:12px; overflow-wrap:anywhere}
 .record-error{color:var(--danger) !important}
 .record-failed{border-color:rgba(255,90,115,.58); color:var(--danger)}
+.record-processing{border-color:rgba(244,201,93,.5); color:var(--warn)}
 .record-filters{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
 .record-list{display:grid; gap:8px}
 .record-item{

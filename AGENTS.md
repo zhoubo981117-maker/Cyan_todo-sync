@@ -4,5 +4,5 @@
 名词可以保留英文。除非用户明确要求英文，否则归档型内容必须写中文。
 
 如需了解当前功能使用的技术、项目结构、Shell 命令和其他关键上下文，
-优先读取当前 Spec Kit 计划文件。
+优先读取当前 Spec Kit 计划文件：`specs/002-feishu-inbox-ai-organize/plan.md`。
 <!-- SPECKIT END -->

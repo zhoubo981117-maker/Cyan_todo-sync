@@ -64,6 +64,9 @@ class RecordsEndpointTests(unittest.TestCase):
 
         self.assertIn("original_input", record_columns)
         self.assertIn("ai_status", record_columns)
+        self.assertIn("source", record_columns)
+        self.assertIn("source_event_id", record_columns)
+        self.assertIn("source_sender_json", record_columns)
         self.assertIn("source_record_id", todo_columns)
 
     def test_create_record_saves_original_input_and_lists_it(self):
@@ -81,6 +84,25 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(len(listed["records"]), 1)
         self.assertEqual(listed["records"][0]["originalInput"], "今天客户说要补报价")
+
+    def test_list_records_returns_feishu_source_fields(self):
+        record = server.create_record(
+            self.conn,
+            1,
+            "feishu note",
+            "failed",
+            source="feishu",
+            source_event_id="om_123",
+            source_sender={"open_id": "ou_1", "chat_id": "oc_1"},
+        )
+
+        status, listed = self.request("GET", "/api/records")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["records"][0]["id"], record["id"])
+        self.assertEqual(listed["records"][0]["source"], "feishu")
+        self.assertEqual(listed["records"][0]["sourceEventId"], "om_123")
+        self.assertEqual(listed["records"][0]["sourceSender"]["open_id"], "ou_1")
 
     def test_record_organize_rejects_invalid_inputs(self):
         server.AI_API_KEY = "test"

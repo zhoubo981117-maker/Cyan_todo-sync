@@ -331,6 +331,9 @@ def init_db(conn: sqlite3.Connection) -> None:
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           owner_user_id INTEGER NOT NULL,
           original_input TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'web',
+          source_event_id TEXT NOT NULL DEFAULT '',
+          source_sender_json TEXT NOT NULL DEFAULT '{}',
           summary TEXT NOT NULL DEFAULT '',
           record_type TEXT NOT NULL DEFAULT 'other',
           tags_json TEXT NOT NULL DEFAULT '[]',
@@ -384,6 +387,12 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER NULL")
     if not _column_exists(conn, "todos", "source_record_id"):
         conn.execute("ALTER TABLE todos ADD COLUMN source_record_id INTEGER NULL")
+    if not _column_exists(conn, "records", "source"):
+        conn.execute("ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT 'web'")
+    if not _column_exists(conn, "records", "source_event_id"):
+        conn.execute("ALTER TABLE records ADD COLUMN source_event_id TEXT NOT NULL DEFAULT ''")
+    if not _column_exists(conn, "records", "source_sender_json"):
+        conn.execute("ALTER TABLE records ADD COLUMN source_sender_json TEXT NOT NULL DEFAULT '{}'")
 
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_todos_owner_client_id ON todos(owner_user_id, client_id)"
@@ -399,6 +408,13 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_todos_source_record ON todos(owner_user_id, source_record_id)"
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_records_feishu_event
+        ON records(owner_user_id, source, source_event_id)
+        WHERE source = 'feishu' AND source_event_id IS NOT NULL AND source_event_id <> ''
+        """
     )
 
     # Backfill missing client_id for existing rows.
@@ -489,7 +505,7 @@ def sanitize_ai_todo_items(raw: Any) -> list[dict[str, Any]]:
 
 RECORD_TYPES = {"task", "note", "idea", "reminder", "event", "question", "other"}
 RECORD_SENTIMENTS = {"positive", "neutral", "negative"}
-RECORD_STATUSES = {"pending", "ready", "failed"}
+RECORD_STATUSES = {"pending", "processing", "ready", "failed"}
 
 
 def _normalize_record_type(value: Any) -> str:
@@ -562,6 +578,16 @@ def _json_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return value if isinstance(value, dict) else {}
+
+
 def _linked_todos_for_record(conn: sqlite3.Connection, user_id: int, record_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -590,6 +616,9 @@ def serialize_record_row(conn: sqlite3.Connection, row: sqlite3.Row, include_lin
     record = {
         "id": record_id,
         "originalInput": row["original_input"],
+        "source": row["source"],
+        "sourceEventId": row["source_event_id"],
+        "sourceSender": _json_object(row["source_sender_json"]),
         "summary": row["summary"],
         "type": row["record_type"],
         "tags": _json_list(row["tags_json"]),
@@ -607,15 +636,36 @@ def serialize_record_row(conn: sqlite3.Connection, row: sqlite3.Row, include_lin
     return record
 
 
-def create_record(conn: sqlite3.Connection, user_id: int, text: str, ai_status: str = "pending") -> dict[str, Any]:
+def create_record(
+    conn: sqlite3.Connection,
+    user_id: int,
+    text: str,
+    ai_status: str = "pending",
+    source: str = "web",
+    source_event_id: str = "",
+    source_sender: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     now = _utc_now_iso()
     summary = _clean_ai_string(text, 240)
+    clean_source = _clean_ai_string(source or "web", 32) or "web"
+    clean_event_id = _clean_ai_string(source_event_id, 160)
+    sender_json = json.dumps(source_sender if isinstance(source_sender, dict) else {}, ensure_ascii=False)
     cur = conn.execute(
         """
-        INSERT INTO records(owner_user_id, original_input, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
-        VALUES (?, ?, ?, 'other', '[]', '[]', 'neutral', ?, '', NULL, ?, ?)
+        INSERT INTO records(owner_user_id, original_input, source, source_event_id, source_sender_json, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'other', '[]', '[]', 'neutral', ?, '', NULL, ?, ?)
         """,
-        (user_id, text, summary, ai_status if ai_status in RECORD_STATUSES else "pending", now, now),
+        (
+            user_id,
+            text,
+            clean_source,
+            clean_event_id,
+            sender_json,
+            summary,
+            ai_status if ai_status in RECORD_STATUSES else "pending",
+            now,
+            now,
+        ),
     )
     row = conn.execute("SELECT * FROM records WHERE id = ?", (int(cur.lastrowid),)).fetchone()
     return serialize_record_row(conn, row)
@@ -645,6 +695,43 @@ def update_record_ai_result(conn: sqlite3.Connection, user_id: int, record_id: i
     )
     row = conn.execute("SELECT * FROM records WHERE id = ? AND owner_user_id = ?", (record_id, user_id)).fetchone()
     return serialize_record_row(conn, row)
+
+
+def organize_record_ai(conn: sqlite3.Connection, user_id: int, record_id: int, text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if not AI_API_KEY:
+        failed = update_record_ai_result(
+            conn,
+            user_id,
+            record_id,
+            sanitize_record_fields({}, text),
+            "failed",
+            "AI not configured",
+        )
+        return failed, []
+    try:
+        fields, items = call_xiaomi_record_organizer(text)
+    except ValueError:
+        failed = update_record_ai_result(
+            conn,
+            user_id,
+            record_id,
+            sanitize_record_fields({}, text),
+            "failed",
+            "AI returned invalid JSON",
+        )
+        return failed, []
+    except RuntimeError as exc:
+        failed = update_record_ai_result(
+            conn,
+            user_id,
+            record_id,
+            sanitize_record_fields({}, text),
+            "failed",
+            str(exc),
+        )
+        return failed, []
+    ready = update_record_ai_result(conn, user_id, record_id, fields, "ready", "")
+    return ready, items
 
 
 def _strip_json_code_fence(text: str) -> str:
@@ -899,12 +986,19 @@ def create_feishu_ai_todos(conn: sqlite3.Connection, default_email: str, text: s
     return [create_todo_item_for_email(conn, default_email, item, "Created from Feishu AI") for item in items]
 
 
-def _extract_feishu_message_text(body: dict[str, Any]) -> str:
+def _extract_feishu_message(body: dict[str, Any]) -> dict[str, Any]:
     event = body.get("event")
     if not isinstance(event, dict):
-        return ""
+        return {}
     message = event.get("message")
     if not isinstance(message, dict):
+        return {}
+    return message
+
+
+def _extract_feishu_message_text(body: dict[str, Any]) -> str:
+    message = _extract_feishu_message(body)
+    if message.get("message_type") not in ("", None, "text"):
         return ""
     content = message.get("content")
     if not isinstance(content, str):
@@ -915,6 +1009,113 @@ def _extract_feishu_message_text(body: dict[str, Any]) -> str:
         return ""
     text = parsed.get("text")
     return str(text or "")
+
+
+def _extract_feishu_message_id(body: dict[str, Any]) -> str:
+    message = _extract_feishu_message(body)
+    return _clean_ai_string(message.get("message_id"), 160)
+
+
+def _extract_feishu_sender_info(body: dict[str, Any]) -> dict[str, Any]:
+    event = body.get("event")
+    if not isinstance(event, dict):
+        return {}
+    message = event.get("message")
+    sender = event.get("sender")
+    result: dict[str, Any] = {}
+    if isinstance(sender, dict):
+        sender_id = sender.get("sender_id")
+        if isinstance(sender_id, dict):
+            for key in ("open_id", "union_id", "user_id"):
+                value = _clean_ai_string(sender_id.get(key), 120)
+                if value:
+                    result[key] = value
+        sender_type = _clean_ai_string(sender.get("sender_type"), 40)
+        if sender_type:
+            result["sender_type"] = sender_type
+    if isinstance(message, dict):
+        chat_id = _clean_ai_string(message.get("chat_id"), 120)
+        if chat_id:
+            result["chat_id"] = chat_id
+    return result
+
+
+def _feishu_reply_text(result: dict[str, Any]) -> str:
+    if result.get("duplicate"):
+        return "已收到，这条飞书消息已在随记收件箱中，无需重复保存。"
+    status = result.get("aiStatus")
+    if status == "ready":
+        return "已保存到随记收件箱，并完成整理。请到 Web/PWA 审查任务草稿。"
+    if status == "failed":
+        return "已保存到随记收件箱，但 AI 整理失败。请到 Web/PWA 查看或重试。"
+    if result.get("handled"):
+        return "已保存到随记收件箱。"
+    return "未处理：请输入有效文本消息。"
+
+
+def handle_feishu_inbox_event(conn: sqlite3.Connection, default_email: str, body: dict[str, Any]) -> dict[str, Any]:
+    text = _extract_feishu_message_text(body).strip()
+    if not text:
+        result = {"handled": False, "reason": "empty message"}
+        result["replyText"] = _feishu_reply_text(result)
+        return result
+    if len(text) > AI_MAX_INPUT_CHARS:
+        result = {"handled": False, "reason": f"text too long, max {AI_MAX_INPUT_CHARS} chars"}
+        result["replyText"] = _feishu_reply_text(result)
+        return result
+    email = normalize_email(default_email)
+    if not email:
+        raise ValueError("default account not configured")
+    row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise ValueError("default account not found")
+    user_id = int(row["id"])
+    message_id = _extract_feishu_message_id(body)
+    if not message_id:
+        raise ValueError("feishu message id required")
+    existing = conn.execute(
+        """
+        SELECT *
+        FROM records
+        WHERE owner_user_id = ? AND source = 'feishu' AND source_event_id = ? AND deleted_at IS NULL
+        """,
+        (user_id, message_id),
+    ).fetchone()
+    if existing:
+        record = serialize_record_row(conn, existing)
+        result = {
+            "handled": True,
+            "duplicate": True,
+            "recordId": record["id"],
+            "aiStatus": record["aiStatus"],
+            "record": record,
+            "items": [],
+        }
+        result["replyText"] = _feishu_reply_text(result)
+        return result
+    record = create_record(
+        conn,
+        user_id,
+        text,
+        "processing",
+        source="feishu",
+        source_event_id=message_id,
+        source_sender=_extract_feishu_sender_info(body),
+    )
+    record_id = int(record["id"])
+    record, items = organize_record_ai(conn, user_id, record_id, text)
+    result = {
+        "handled": True,
+        "duplicate": False,
+        "recordId": record_id,
+        "aiStatus": record["aiStatus"],
+        "record": record,
+        "items": items,
+    }
+    if record["aiError"]:
+        result["error"] = record["aiError"]
+    result["replyText"] = _feishu_reply_text(result)
+    return result
 
 
 def _daily_plan_prompt(now: Optional[datetime] = None) -> str:
@@ -1313,27 +1514,15 @@ class Handler(BaseHTTPRequestHandler):
                 if FEISHU_VERIFY_TOKEN and not hmac.compare_digest(token, FEISHU_VERIFY_TOKEN):
                     self._send_json(*json_error(401, "invalid feishu token"))
                     return
-                text = _extract_feishu_message_text(body)
-                if not text.strip():
-                    self._send_json(*json_ok({"handled": False}))
-                    return
                 try:
-                    if AI_API_KEY:
-                        todos = create_feishu_ai_todos(DB, FEISHU_DEFAULT_EMAIL, text)
-                        self._send_json(*json_ok({"handled": bool(todos), "todos": todos}))
-                        return
-                    title = parse_feishu_todo_command(text)
-                    if not title:
-                        self._send_json(*json_ok({"handled": False}))
-                        return
-                    todo = create_feishu_todo(DB, FEISHU_DEFAULT_EMAIL, title)
+                    result = handle_feishu_inbox_event(DB, FEISHU_DEFAULT_EMAIL, body)
                 except ValueError as exc:
                     self._send_json(*json_error(400, str(exc)))
                     return
                 except RuntimeError as exc:
                     self._send_json(*json_error(502, str(exc)))
                     return
-                self._send_json(*json_ok({"handled": True, "todo": todo}))
+                self._send_json(*json_ok(result))
                 return
 
             if method == "POST" and path == "/api/register":
@@ -1518,43 +1707,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 record = create_record(DB, user.id, text, "pending")
                 record_id = int(record["id"])
-                if not AI_API_KEY:
-                    failed = update_record_ai_result(
-                        DB,
-                        user.id,
-                        record_id,
-                        sanitize_record_fields({}, text),
-                        "failed",
-                        "AI not configured",
-                    )
-                    self._send_json(*json_ok({"record": failed, "items": []}))
-                    return
-                try:
-                    fields, items = call_xiaomi_record_organizer(text)
-                except ValueError:
-                    failed = update_record_ai_result(
-                        DB,
-                        user.id,
-                        record_id,
-                        sanitize_record_fields({}, text),
-                        "failed",
-                        "AI returned invalid JSON",
-                    )
-                    self._send_json(*json_ok({"record": failed, "items": []}))
-                    return
-                except RuntimeError as exc:
-                    failed = update_record_ai_result(
-                        DB,
-                        user.id,
-                        record_id,
-                        sanitize_record_fields({}, text),
-                        "failed",
-                        str(exc),
-                    )
-                    self._send_json(*json_ok({"record": failed, "items": []}))
-                    return
-                ready = update_record_ai_result(DB, user.id, record_id, fields, "ready", "")
-                self._send_json(*json_ok({"record": ready, "items": items}))
+                organized, items = organize_record_ai(DB, user.id, record_id, text)
+                self._send_json(*json_ok({"record": organized, "items": items}))
                 return
 
             if method == "GET" and path == "/api/records":
@@ -1644,22 +1798,8 @@ class Handler(BaseHTTPRequestHandler):
 
                     if len(parts) == 4 and parts[3] == "retry" and method == "POST":
                         text = record_row["original_input"]
-                        if not AI_API_KEY:
-                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", "AI not configured")
-                            self._send_json(*json_ok({"record": failed, "items": []}))
-                            return
-                        try:
-                            fields, items = call_xiaomi_record_organizer(text)
-                        except ValueError:
-                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", "AI returned invalid JSON")
-                            self._send_json(*json_ok({"record": failed, "items": []}))
-                            return
-                        except RuntimeError as exc:
-                            failed = update_record_ai_result(DB, user.id, record_id, sanitize_record_fields({}, text), "failed", str(exc))
-                            self._send_json(*json_ok({"record": failed, "items": []}))
-                            return
-                        ready = update_record_ai_result(DB, user.id, record_id, fields, "ready", "")
-                        self._send_json(*json_ok({"record": ready, "items": items}))
+                        organized, items = organize_record_ai(DB, user.id, record_id, text)
+                        self._send_json(*json_ok({"record": organized, "items": items}))
                         return
 
                     if len(parts) == 4 and parts[3] == "todos" and method == "POST":

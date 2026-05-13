@@ -3,4 +3,11 @@ __pycache__
 *.pyc
 .git
 .gitignore
-
+*.log
+*.log*
+.env
+.env.*
+node_modules
+coverage
+dist
+build

@@ -228,6 +228,24 @@ const sentimentLabels = {
   negative: "消极",
 };
 
+const recordSourceLabels = {
+  web: "Web",
+  feishu: "飞书",
+};
+
+const recordStatusLabels = {
+  pending: "待整理",
+  processing: "整理中",
+  ready: "已整理",
+  failed: "整理失败",
+};
+
+function recordStatusClass(status) {
+  if (status === "failed") return "record-failed";
+  if (status === "processing" || status === "pending") return "record-processing";
+  return "";
+}
+
 function startResetCooldown(seconds = 60) {
   clearInterval(resetCooldownTimer);
   let remaining = Number(seconds) || 60;
@@ -775,12 +793,15 @@ function renderActiveRecord() {
   const tags = (activeRecord.tags || []).map((x) => `<span class="badge">${escapeHtml(x)}</span>`).join("");
   const dates = (activeRecord.dates || []).map((x) => `<span class="badge due">${fmtDue(x)}</span>`).join("");
   const linked = activeRecord.linkedTodos || [];
+  const sourceLabel = recordSourceLabels[activeRecord.source] || activeRecord.source || "Web";
+  const statusLabel = recordStatusLabels[activeRecord.aiStatus] || activeRecord.aiStatus || "待整理";
   els.recordActive.innerHTML = `
     <div class="record-head">
       <strong>${escapeHtml(activeRecord.summary || "未整理摘要")}</strong>
       <span class="badge">${recordTypeLabels[activeRecord.type] || "其他"}</span>
       <span class="badge">${sentimentLabels[activeRecord.sentiment] || "中性"}</span>
-      <span class="badge ${activeRecord.aiStatus === "failed" ? "record-failed" : ""}">${activeRecord.aiStatus === "failed" ? "整理失败" : "已整理"}</span>
+      <span class="badge">${escapeHtml(sourceLabel)}</span>
+      <span class="badge ${recordStatusClass(activeRecord.aiStatus)}">${escapeHtml(statusLabel)}</span>
     </div>
     <div class="record-raw">${escapeHtml(activeRecord.originalInput || "")}</div>
     <div class="record-tags">${tags || '<span class="hint">无标签</span>'}${dates}</div>
@@ -812,9 +833,11 @@ function renderRecords() {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "record-item";
+    const sourceLabel = recordSourceLabels[record.source] || record.source || "Web";
+    const statusLabel = recordStatusLabels[record.aiStatus] || record.aiStatus || "待整理";
     card.innerHTML = `
       <strong>${escapeHtml(record.summary || record.originalInput || "未命名随记")}</strong>
-      <span>${recordTypeLabels[record.type] || "其他"} · ${sentimentLabels[record.sentiment] || "中性"} · ${(record.tags || []).join(" / ") || "无标签"}</span>
+      <span>${escapeHtml(sourceLabel)} · ${escapeHtml(statusLabel)} · ${recordTypeLabels[record.type] || "其他"} · ${sentimentLabels[record.sentiment] || "中性"} · ${(record.tags || []).join(" / ") || "无标签"}</span>
     `;
     card.addEventListener("click", () => {
       activeRecord = record;
