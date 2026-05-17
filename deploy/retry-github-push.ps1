@@ -1,7 +1,8 @@
 param(
     [string]$Repo = "zhoubo981117-maker/Cyan_todo-sync",
     [string]$Branch = "main",
-    [string]$LogPath = "deploy_retry.log"
+    [string]$LogPath = "deploy_retry.log",
+    [string]$TaskName = "Cyan-Dify-Agent-System Git Push Retry"
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,14 +15,26 @@ function Write-Log {
     Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
 }
 
+function Disable-RetryTask {
+    if (-not $TaskName) {
+        return
+    }
+    try {
+        schtasks /Change /TN $TaskName /Disable 2>&1 | ForEach-Object { Write-Log $_ }
+    }
+    catch {
+        Write-Log "Failed to disable scheduled task ${TaskName}: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-GhJson {
     param(
         [string[]]$ApiArgs,
         [object]$Body = $null
     )
-    $gh = "gh"
-    if (Test-Path "C:\Users\huawei\AppData\Local\Programs\GitHub CLI\bin\gh.exe") {
-        $gh = "C:\Users\huawei\AppData\Local\Programs\GitHub CLI\bin\gh.exe"
+    $gh = $script:GhPath
+    if (-not $gh) {
+        throw "GitHub CLI is not available"
     }
 
     if ($null -eq $Body) {
@@ -37,6 +50,19 @@ function Invoke-GhJson {
     finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Resolve-GhPath {
+    if (Test-Path "C:\Users\huawei\AppData\Local\Programs\GitHub CLI\bin\gh.exe") {
+        return "C:\Users\huawei\AppData\Local\Programs\GitHub CLI\bin\gh.exe"
+    }
+
+    $cmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    return $null
 }
 
 function Get-GitBlobBytes {
@@ -72,19 +98,7 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 $localHead = (git rev-parse HEAD).Trim()
 $localTree = (git rev-parse "HEAD^{tree}").Trim()
 $message = (git log -1 --pretty=%s).Trim()
-$remoteRef = Invoke-GhJson -ApiArgs @("repos/$Repo/git/ref/heads/$Branch")
-$remoteSha = $remoteRef.object.sha
-$remoteCommit = Invoke-GhJson -ApiArgs @("repos/$Repo/git/commits/$remoteSha")
-$remoteTree = $remoteCommit.tree.sha
-
 Write-Log "Local HEAD: $localHead"
-Write-Log "Remote HEAD: $remoteSha"
-
-if ($remoteSha -eq $localHead -or $remoteTree -eq $localTree) {
-    Write-Log "Already published. No retry needed."
-    exit 0
-}
-
 Write-Log "Trying normal git push..."
 $oldErrorActionPreference = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
@@ -93,6 +107,27 @@ $pushExitCode = $LASTEXITCODE
 $ErrorActionPreference = $oldErrorActionPreference
 if ($pushExitCode -eq 0) {
     Write-Log "git push succeeded."
+    Disable-RetryTask
+    exit 0
+}
+
+Write-Log "git push failed. Checking whether GitHub API fallback is available..."
+$script:GhPath = Resolve-GhPath
+if (-not $script:GhPath) {
+    Write-Log "GitHub CLI is not available. Waiting for next scheduled retry."
+    exit $pushExitCode
+}
+
+$remoteRef = Invoke-GhJson -ApiArgs @("repos/$Repo/git/ref/heads/$Branch")
+$remoteSha = $remoteRef.object.sha
+$remoteCommit = Invoke-GhJson -ApiArgs @("repos/$Repo/git/commits/$remoteSha")
+$remoteTree = $remoteCommit.tree.sha
+
+Write-Log "Remote HEAD: $remoteSha"
+
+if ($remoteSha -eq $localHead -or $remoteTree -eq $localTree) {
+    Write-Log "Already published. No retry needed."
+    Disable-RetryTask
     exit 0
 }
 
@@ -125,3 +160,4 @@ Invoke-GhJson -ApiArgs @("repos/$Repo/git/refs/heads/$Branch", "--method", "PATC
 } | Out-Null
 
 Write-Log "GitHub API publish succeeded: $($commit.sha)"
+Disable-RetryTask
