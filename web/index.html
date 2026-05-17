@@ -1,1 +1,378 @@
-<!doctype html> <html lang="zh-CN">   <head>     <meta charset="utf-8" />     <meta name="viewport" content="width=device-width, initial-scale=1" />     <meta name="theme-color" content="#0a0f1c" />     <title>随记代办同步</title>     <link rel="manifest" href="/manifest.webmanifest" />     <link rel="icon" href="/icon.svg" type="image/svg+xml" />     <link rel="stylesheet" href="/styles.css" />   </head>   <body>     <div class="bg"></div>     <header class="topbar">       <div class="brand">         <img class="logo" src="/icon.svg" alt="logo" />         <div>           <div class="brand-title">随记代办同步</div>           <div class="brand-sub">Android + Windows 同步代办</div>         </div>       </div>       <div class="top-actions">         <button id="btnSecurity" class="btn btn-ghost hidden">账号安全</button>         <button id="btnRefresh" class="btn btn-ghost" title="刷新">刷新</button>         <button id="btnLogout" class="btn btn-ghost hidden">退出</button>       </div>     </header>      <main class="wrap">       <section id="authCard" class="card auth-card">         <div class="card-title">登录</div>         <div class="card-sub">用同一个账号在安卓和 Windows 登录，就能看到同一份清单。</div>         <div class="form">           <label class="field">             <span>邮箱</span>             <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" />           </label>           <label class="field">             <span>密码</span>             <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" />           </label>         <div class="row">           <button id="btnLogin" class="btn btn-primary">登录</button>           <button id="btnRegister" class="btn btn-secondary">注册</button>           <button id="btnForgotPasswordOpen" class="btn btn-ghost" type="button">忘记密码</button>         </div>           <div id="authMsg" class="msg"></div>         </div>       </section>        <section id="appCard" class="app-shell hidden">         <section class="task-pane">           <div class="pane-head">             <div>               <div class="card-title">任务栏</div>               <div id="whoami" class="card-sub"></div>             </div>             <div class="pane-actions">               <div id="taskStats" class="stats-pill">0 / 0</div>               <div id="versionInfo" class="stats-pill">版本：检测中</div>             </div>           </div>            <section class="pomodoro-strip">             <div>               <div class="panel-title">番茄钟</div>               <div class="card-sub">启动后可切换专注/休息。</div>             </div>             <div id="pomodoroMode" class="stats-pill">专注</div>             <div id="pomodoroTime" class="timer">25:00</div>             <div class="pomodoro-controls">               <button id="btnPomodoroStart" class="btn btn-primary">开始</button>               <button id="btnPomodoroPause" class="btn btn-secondary">暂停</button>               <button id="btnPomodoroReset" class="btn btn-ghost">重置</button>             </div>             <div class="pomodoro-selects">               <label class="field">                 <span>专注</span>                 <select id="focusMinutes">                   <option value="25" selected>25 分钟</option>                   <option value="45">45 分钟</option>                   <option value="60">60 分钟</option>                 </select>               </label>               <label class="field">                 <span>休息</span>                 <select id="breakMinutes">                   <option value="5" selected>5 分钟</option>                   <option value="10">10 分钟</option>                   <option value="15">15 分钟</option>                 </select>               </label>             </div>           </section>            <section class="calendar-panel">             <div class="panel-head">               <div>                 <div class="panel-title">日历视图</div>                 <div class="card-sub">默认显示本周，展开后查看最近一个月。</div>               </div>               <div class="calendar-actions">                 <div id="calendarMonth" class="stats-pill"></div>                 <button id="btnToggleCalendar" class="btn btn-ghost btn-mini" type="button">展开</button>               </div>             </div>             <div id="calendarGrid" class="calendar-grid"></div>           </section>           <div id="todoList" class="todos"></div>         </section>          <aside class="side-pane">           <section class="panel ai-panel">             <div class="panel-title">随记收件箱</div>             <div class="card-sub">保存原始输入，AI 自动整理摘要、类型、标签、日期、情绪和待办草稿。</div>             <label class="field">               <span>原始内容</span>               <textarea id="aiInput" rows="5" placeholder="例如：明天 10 点前整理方案，下午同步给客户，同时让小王补充风险点"></textarea>             </label>             <div class="row">               <button id="btnAiGenerate" class="btn btn-secondary" type="button">保存并整理</button>               <button id="btnAiClear" class="btn btn-ghost" type="button">清空</button>               <div id="aiMsg" class="msg"></div>             </div>             <div id="recordActive" class="record-active hidden"></div>             <div id="aiDraftList" class="ai-drafts"></div>             <div class="row ai-save-row hidden" id="aiSaveRow">               <button id="btnAiSave" class="btn btn-primary" type="button">保存选中</button>               <div id="aiSaveMsg" class="msg"></div>             </div>             <div class="record-filters">               <select id="recordTypeFilter">                 <option value="">全部类型</option>                 <option value="task">任务</option>                 <option value="note">笔记</option>                 <option value="idea">灵感</option>                 <option value="reminder">提醒</option>                 <option value="event">事件</option>                 <option value="question">问题</option>                 <option value="other">其他</option>               </select>               <input id="recordTagFilter" type="text" placeholder="标签" />               <select id="recordLinkedFilter">                 <option value="">全部关联</option>                 <option value="1">有关联任务</option>               </select>             </div>             <div id="recordList" class="record-list"></div>           </section>           <section class="panel daily-plan-panel">             <div class="panel-title">今日计划</div>             <div class="card-sub">根据未完成任务生成今天的执行建议，暂不自动创建新任务。</div>             <div class="row">               <button id="btnDailyPlan" class="btn btn-secondary" type="button">生成今日计划</button>               <div id="dailyPlanMsg" class="msg"></div>             </div>             <div id="dailyPlanResult" class="daily-plan-result hidden"></div>           </section>           <section class="panel composer">             <div class="panel-title">新增代办</div>             <label class="field">               <span>任务</span>               <input id="newTitle" type="text" placeholder="比如：完成方案评审" />             </label>             <label class="field">               <span>备注</span>               <input id="newNote" type="text" placeholder="可选" />             </label>             <label class="field">               <span>优先级</span>               <select id="newUrgency">                 <option value="0">不急</option>                 <option value="1" selected>普通</option>                 <option value="2">紧急</option>                 <option value="3">非常紧急</option>               </select>             </label>             <label class="field">               <span>重复</span>               <select id="newRepeatRule">                 <option value="none" selected>不重复</option>                 <option value="daily">每天</option>                 <option value="weekly">每周</option>                 <option value="monthly">每月</option>               </select>             </label>             <label class="field">               <span>提醒</span>               <select id="newReminder">                 <option value="none" selected>不提醒</option>                 <option value="at_due">到点提醒</option>                 <option value="10">提前 10 分钟</option>                 <option value="30">提前 30 分钟</option>                 <option value="60">提前 1 小时</option>               </select>             </label>             <div class="field">               <span>完成时间</span>               <div class="due-card">                 <div id="dueSummary" class="due-summary"></div>                 <div class="due-presets">                   <button class="btn btn-ghost btn-mini due-preset" data-offset="0">今天</button>                   <button class="btn btn-ghost btn-mini due-preset" data-offset="1">明天</button>                   <button class="btn btn-ghost btn-mini due-preset" data-offset="2">后天</button>                   <button class="btn btn-ghost btn-mini due-clear">清空</button>                 </div>                 <div class="grid2">                   <label class="field">                     <span>日期</span>                     <input id="newDueDate" type="date" />                   </label>                   <label class="field">                     <span>时间</span>                     <select id="newDueTime">                       <option value="09:00">09:00</option>                       <option value="12:00">12:00</option>                       <option value="18:30" selected>18:30</option>                       <option value="21:00">21:00</option>                     </select>                   </label>                 </div>               </div>             </div>             <div class="row">               <button id="btnAddTodo" class="btn btn-primary">添加</button>               <div id="appMsg" class="msg"></div>             </div>           </section>           <section class="panel notification-panel">             <div class="panel-title">提醒通知</div>             <div class="card-sub">浏览器允许通知后，页面打开期间会按完成时间提醒。</div>             <div class="row">               <button id="btnEnableNotifications" class="btn btn-secondary" type="button">开启通知</button>               <div id="notificationStatus" class="msg">未开启</div>             </div>           </section>         </aside>       </section>     </main>      <dialog id="securityDialog" class="dialog">       <form method="dialog" class="dialog-card">         <div class="dialog-head">           <div>             <div class="card-title">账号安全</div>             <div class="card-sub">修改密码需要校验旧密码；重置密码适合本设备仍保持登录的场景。</div>           </div>           <button id="btnCloseSecurity" class="btn btn-ghost" value="cancel">关闭</button>         </div>         <div class="security-tabs">           <button id="btnToggleChangePassword" class="btn btn-secondary" type="button">修改密码</button>           <button id="btnToggleResetPassword" class="btn btn-ghost" type="button">重置密码</button>         </div>         <div id="changePasswordPanel" class="security-panel">           <div class="grid2">             <label class="field">               <span>当前密码</span>               <input id="changeCurrentPassword" type="password" autocomplete="current-password" />             </label>             <label class="field">               <span>新密码</span>               <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />             </label>           </div>           <label class="field">             <span>确认新密码</span>             <input id="changeConfirmPassword" type="password" autocomplete="new-password" />           </label>           <button id="btnChangePassword" class="btn btn-primary" type="button">保存新密码</button>         </div>         <div id="resetPasswordPanel" class="security-panel hidden">           <div class="grid2">             <label class="field">               <span>新密码</span>               <input id="resetNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />             </label>             <label class="field">               <span>确认新密码</span>               <input id="resetConfirmPassword" type="password" autocomplete="new-password" />             </label>           </div>           <button id="btnResetPassword" class="btn btn-primary" type="button">直接重置</button>         </div>         <div id="securityMsg" class="msg"></div>       </form>     </dialog>      <dialog id="forgotDialog" class="dialog">       <form method="dialog" class="dialog-card">         <div class="dialog-head">           <div>             <div class="card-title">忘记密码</div>             <div class="card-sub">输入邮箱获取验证码或重置链接，再设置新密码。</div>           </div>           <button id="btnCloseForgot" class="btn btn-ghost" value="cancel">关闭</button>         </div>         <label class="field">           <span>邮箱</span>           <input id="forgotEmail" type="email" autocomplete="email" placeholder="name@example.com" />         </label>         <div class="row">           <button id="btnRequestReset" class="btn btn-secondary" type="button">发送验证码/链接</button>         </div>         <div class="grid2">           <label class="field">             <span>验证码</span>             <input id="forgotCode" type="text" inputmode="numeric" placeholder="邮箱验证码" />           </label>           <label class="field">             <span>重置链接 Token</span>             <input id="forgotToken" type="text" placeholder="打开重置链接会自动填入" />           </label>         </div>         <div class="grid2">           <label class="field">             <span>新密码</span>             <input id="forgotNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />           </label>           <label class="field">             <span>确认新密码</span>             <input id="forgotConfirmPassword" type="password" autocomplete="new-password" />           </label>         </div>         <button id="btnConfirmForgotReset" class="btn btn-primary" type="button">重置密码</button>         <div id="forgotMsg" class="msg"></div>       </form>     </dialog>      <template id="todoTpl">       <article class="todo">         <div class="todo-main">           <label class="check">             <input class="todo-done" type="checkbox" />             <span class="checkmark"></span>           </label>           <div class="todo-body">             <div class="todo-top">               <button class="todo-title" type="button"></button>               <span class="badge urgency"></span>               <span class="badge repeat hidden"></span>               <span class="badge due hidden"></span>             </div>             <div class="todo-note"></div>             <div class="todo-meta"></div>           </div>           <div class="todo-actions">             <button class="btn btn-ghost btn-mini todo-edit" title="修改">修改</button>             <button class="btn btn-ghost btn-mini todo-del" title="删除">删除</button>           </div>         </div>         <div class="subtasks hidden">           <div class="sub-head">             <div class="sub-title">子任务</div>             <div class="sub-actions">               <input class="sub-new" type="text" placeholder="添加子任务..." />               <button class="btn btn-secondary btn-mini sub-add">添加</button>             </div>           </div>           <div class="sub-list"></div>         </div>       </article>     </template>      <template id="subTpl">       <div class="sub">         <label class="check">           <input class="sub-done" type="checkbox" />           <span class="checkmark"></span>         </label>         <div class="sub-title"></div>         <button class="btn btn-ghost btn-mini sub-edit" title="修改">修改</button>         <button class="btn btn-ghost btn-mini sub-del" title="删除">删除</button>       </div>     </template>      <script src="/app.js"></script>   </body> </html>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0a0f1c" />
+    <title>随记代办同步</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <header class="topbar">
+      <div class="brand">
+        <img class="logo" src="/icon.svg" alt="logo" />
+        <div>
+          <div class="brand-title">随记代办同步</div>
+          <div class="brand-sub">Android + Windows 同步代办</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="btnSecurity" class="btn btn-ghost hidden">账号安全</button>
+        <button id="btnRefresh" class="btn btn-ghost" title="刷新">刷新</button>
+        <button id="btnLogout" class="btn btn-ghost hidden">退出</button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="authCard" class="card auth-card">
+        <div class="card-title">登录</div>
+        <div class="card-sub">用同一个账号在安卓和 Windows 登录，就能看到同一份清单。</div>
+        <div class="form">
+          <label class="field">
+            <span>邮箱</span>
+            <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </label>
+        <div class="row">
+          <button id="btnLogin" class="btn btn-primary">登录</button>
+          <button id="btnRegister" class="btn btn-secondary">注册</button>
+          <button id="btnForgotPasswordOpen" class="btn btn-ghost" type="button">忘记密码</button>
+        </div>
+          <div id="authMsg" class="msg"></div>
+        </div>
+      </section>
+
+      <section id="appCard" class="app-shell hidden">
+        <section class="task-pane">
+          <div class="pane-head">
+            <div>
+              <div class="card-title">任务栏</div>
+              <div id="whoami" class="card-sub"></div>
+            </div>
+            <div class="pane-actions">
+              <div id="taskStats" class="stats-pill">0 / 0</div>
+              <div id="versionInfo" class="stats-pill">版本：检测中</div>
+            </div>
+          </div>
+
+          <section class="pomodoro-strip">
+            <div>
+              <div class="panel-title">番茄钟</div>
+              <div class="card-sub">启动后可切换专注/休息。</div>
+            </div>
+            <div id="pomodoroMode" class="stats-pill">专注</div>
+            <div id="pomodoroTime" class="timer">25:00</div>
+            <div class="pomodoro-controls">
+              <button id="btnPomodoroStart" class="btn btn-primary">开始</button>
+              <button id="btnPomodoroPause" class="btn btn-secondary">暂停</button>
+              <button id="btnPomodoroReset" class="btn btn-ghost">重置</button>
+            </div>
+            <div class="pomodoro-selects">
+              <label class="field">
+                <span>专注</span>
+                <select id="focusMinutes">
+                  <option value="25" selected>25 分钟</option>
+                  <option value="45">45 分钟</option>
+                  <option value="60">60 分钟</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>休息</span>
+                <select id="breakMinutes">
+                  <option value="5" selected>5 分钟</option>
+                  <option value="10">10 分钟</option>
+                  <option value="15">15 分钟</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="calendar-panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-title">日历视图</div>
+                <div class="card-sub">默认显示本周，展开后查看最近一个月。</div>
+              </div>
+              <div class="calendar-actions">
+                <div id="calendarMonth" class="stats-pill"></div>
+                <button id="btnToggleCalendar" class="btn btn-ghost btn-mini" type="button">展开</button>
+              </div>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
+          <div id="todoList" class="todos"></div>
+        </section>
+
+        <aside class="side-pane">
+          <section class="panel ai-panel">
+            <div class="panel-title">随记收件箱</div>
+            <div class="card-sub">保存原始输入，AI 自动整理摘要、类型、标签、日期、情绪和待办草稿。</div>
+            <label class="field">
+              <span>原始内容</span>
+              <textarea id="aiInput" rows="5" placeholder="例如：明天 10 点前整理方案，下午同步给客户，同时让小王补充风险点"></textarea>
+            </label>
+            <div class="row">
+              <button id="btnAiGenerate" class="btn btn-secondary" type="button">保存并整理</button>
+              <button id="btnAiClear" class="btn btn-ghost" type="button">清空</button>
+              <div id="aiMsg" class="msg"></div>
+            </div>
+            <div id="recordActive" class="record-active hidden"></div>
+            <div id="aiDraftList" class="ai-drafts"></div>
+            <div class="row ai-save-row hidden" id="aiSaveRow">
+              <button id="btnAiSave" class="btn btn-primary" type="button">保存选中</button>
+              <div id="aiSaveMsg" class="msg"></div>
+            </div>
+            <div class="record-filters">
+              <select id="recordTypeFilter">
+                <option value="">全部类型</option>
+                <option value="task">任务</option>
+                <option value="note">笔记</option>
+                <option value="idea">灵感</option>
+                <option value="reminder">提醒</option>
+                <option value="event">事件</option>
+                <option value="question">问题</option>
+                <option value="other">其他</option>
+              </select>
+              <input id="recordTagFilter" type="text" placeholder="标签" />
+              <select id="recordLinkedFilter">
+                <option value="">全部关联</option>
+                <option value="1">有关联任务</option>
+              </select>
+            </div>
+            <div id="recordList" class="record-list"></div>
+          </section>
+          <section class="panel daily-plan-panel">
+            <div class="panel-title">今日计划</div>
+            <div class="card-sub">根据未完成任务生成今天的执行建议，暂不自动创建新任务。</div>
+            <div class="row">
+              <button id="btnDailyPlan" class="btn btn-secondary" type="button">生成今日计划</button>
+              <div id="dailyPlanMsg" class="msg"></div>
+            </div>
+            <div id="dailyPlanResult" class="daily-plan-result hidden"></div>
+          </section>
+          <section class="panel composer">
+            <div class="panel-title">新增代办</div>
+            <label class="field">
+              <span>任务</span>
+              <input id="newTitle" type="text" placeholder="比如：完成方案评审" />
+            </label>
+            <label class="field">
+              <span>备注</span>
+              <input id="newNote" type="text" placeholder="可选" />
+            </label>
+            <label class="field">
+              <span>优先级</span>
+              <select id="newUrgency">
+                <option value="0">不急</option>
+                <option value="1" selected>普通</option>
+                <option value="2">紧急</option>
+                <option value="3">非常紧急</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>重复</span>
+              <select id="newRepeatRule">
+                <option value="none" selected>不重复</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>提醒</span>
+              <select id="newReminder">
+                <option value="none" selected>不提醒</option>
+                <option value="at_due">到点提醒</option>
+                <option value="10">提前 10 分钟</option>
+                <option value="30">提前 30 分钟</option>
+                <option value="60">提前 1 小时</option>
+              </select>
+            </label>
+            <div class="field">
+              <span>完成时间</span>
+              <div class="due-card">
+                <div id="dueSummary" class="due-summary"></div>
+                <div class="due-presets">
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="0">今天</button>
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="1">明天</button>
+                  <button class="btn btn-ghost btn-mini due-preset" data-offset="2">后天</button>
+                  <button class="btn btn-ghost btn-mini due-clear">清空</button>
+                </div>
+                <div class="grid2">
+                  <label class="field">
+                    <span>日期</span>
+                    <input id="newDueDate" type="date" />
+                  </label>
+                  <label class="field">
+                    <span>时间</span>
+                    <select id="newDueTime">
+                      <option value="09:00">09:00</option>
+                      <option value="12:00">12:00</option>
+                      <option value="18:30" selected>18:30</option>
+                      <option value="21:00">21:00</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <button id="btnAddTodo" class="btn btn-primary">添加</button>
+              <div id="appMsg" class="msg"></div>
+            </div>
+          </section>
+          <section class="panel notification-panel">
+            <div class="panel-title">提醒通知</div>
+            <div class="card-sub">浏览器允许通知后，页面打开期间会按完成时间提醒。</div>
+            <div class="row">
+              <button id="btnEnableNotifications" class="btn btn-secondary" type="button">开启通知</button>
+              <div id="notificationStatus" class="msg">未开启</div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <dialog id="securityDialog" class="dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-head">
+          <div>
+            <div class="card-title">账号安全</div>
+            <div class="card-sub">修改密码需要校验旧密码；重置密码适合本设备仍保持登录的场景。</div>
+          </div>
+          <button id="btnCloseSecurity" class="btn btn-ghost" value="cancel">关闭</button>
+        </div>
+        <div class="security-tabs">
+          <button id="btnToggleChangePassword" class="btn btn-secondary" type="button">修改密码</button>
+          <button id="btnToggleResetPassword" class="btn btn-ghost" type="button">重置密码</button>
+        </div>
+        <div id="changePasswordPanel" class="security-panel">
+          <div class="grid2">
+            <label class="field">
+              <span>当前密码</span>
+              <input id="changeCurrentPassword" type="password" autocomplete="current-password" />
+            </label>
+            <label class="field">
+              <span>新密码</span>
+              <input id="changeNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+          </div>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="changeConfirmPassword" type="password" autocomplete="new-password" />
+          </label>
+          <button id="btnChangePassword" class="btn btn-primary" type="button">保存新密码</button>
+        </div>
+        <div id="resetPasswordPanel" class="security-panel hidden">
+          <div class="grid2">
+            <label class="field">
+              <span>新密码</span>
+              <input id="resetNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+            <label class="field">
+              <span>确认新密码</span>
+              <input id="resetConfirmPassword" type="password" autocomplete="new-password" />
+            </label>
+          </div>
+          <button id="btnResetPassword" class="btn btn-primary" type="button">直接重置</button>
+        </div>
+        <div id="securityMsg" class="msg"></div>
+      </form>
+    </dialog>
+
+    <dialog id="forgotDialog" class="dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="dialog-head">
+          <div>
+            <div class="card-title">忘记密码</div>
+            <div class="card-sub">输入邮箱获取验证码或重置链接，再设置新密码。</div>
+          </div>
+          <button id="btnCloseForgot" class="btn btn-ghost" value="cancel">关闭</button>
+        </div>
+        <label class="field">
+          <span>邮箱</span>
+          <input id="forgotEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+        </label>
+        <div class="row">
+          <button id="btnRequestReset" class="btn btn-secondary" type="button">发送验证码/链接</button>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span>验证码</span>
+            <input id="forgotCode" type="text" inputmode="numeric" placeholder="邮箱验证码" />
+          </label>
+          <label class="field">
+            <span>重置链接 Token</span>
+            <input id="forgotToken" type="text" placeholder="打开重置链接会自动填入" />
+          </label>
+        </div>
+        <div class="grid2">
+          <label class="field">
+            <span>新密码</span>
+            <input id="forgotNewPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+          </label>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="forgotConfirmPassword" type="password" autocomplete="new-password" />
+          </label>
+        </div>
+        <button id="btnConfirmForgotReset" class="btn btn-primary" type="button">重置密码</button>
+        <div id="forgotMsg" class="msg"></div>
+      </form>
+    </dialog>
+
+    <template id="todoTpl">
+      <article class="todo">
+        <div class="todo-main">
+          <label class="check">
+            <input class="todo-done" type="checkbox" />
+            <span class="checkmark"></span>
+          </label>
+          <div class="todo-body">
+            <div class="todo-top">
+              <button class="todo-title" type="button"></button>
+              <span class="badge urgency"></span>
+              <span class="badge repeat hidden"></span>
+              <span class="badge due hidden"></span>
+            </div>
+            <div class="todo-note"></div>
+            <div class="todo-meta"></div>
+          </div>
+          <div class="todo-actions">
+            <button class="btn btn-ghost btn-mini todo-edit" title="修改">修改</button>
+            <button class="btn btn-ghost btn-mini todo-del" title="删除">删除</button>
+          </div>
+        </div>
+        <div class="subtasks hidden">
+          <div class="sub-head">
+            <div class="sub-title">子任务</div>
+            <div class="sub-actions">
+              <input class="sub-new" type="text" placeholder="添加子任务..." />
+              <button class="btn btn-secondary btn-mini sub-add">添加</button>
+            </div>
+          </div>
+          <div class="sub-list"></div>
+        </div>
+      </article>
+    </template>
+
+    <template id="subTpl">
+      <div class="sub">
+        <label class="check">
+          <input class="sub-done" type="checkbox" />
+          <span class="checkmark"></span>
+        </label>
+        <div class="sub-title"></div>
+        <button class="btn btn-ghost btn-mini sub-edit" title="修改">修改</button>
+        <button class="btn btn-ghost btn-mini sub-del" title="删除">删除</button>
+      </div>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

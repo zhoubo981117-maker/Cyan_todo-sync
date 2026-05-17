@@ -1,1 +1,11 @@
-{   "name": "随记代办同步",   "short_name": "随记代办",   "start_url": "/",   "display": "standalone",   "background_color": "#070a12",   "theme_color": "#0a0f1c",   "icons": [     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }   ] }
+{
+  "name": "随记代办同步",
+  "short_name": "随记代办",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070a12",
+  "theme_color": "#0a0f1c",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
