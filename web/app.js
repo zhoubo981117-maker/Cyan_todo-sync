@@ -169,18 +169,12 @@ const els = {
   todoList: document.getElementById("todoList"),
   todoTpl: document.getElementById("todoTpl"),
   subTpl: document.getElementById("subTpl"),
-  pomodoroMode: document.getElementById("pomodoroMode"),
-  pomodoroTime: document.getElementById("pomodoroTime"),
-  btnPomodoroStart: document.getElementById("btnPomodoroStart"),
-  btnPomodoroPause: document.getElementById("btnPomodoroPause"),
-  btnPomodoroReset: document.getElementById("btnPomodoroReset"),
-  focusMinutes: document.getElementById("focusMinutes"),
-  breakMinutes: document.getElementById("breakMinutes"),
   btnEnableNotifications: document.getElementById("btnEnableNotifications"),
   notificationStatus: document.getElementById("notificationStatus"),
 };
 
 let currentTodos = [];
+let todoStats = { active: 0, archived: 0, total: 0 };
 let aiDrafts = [];
 let currentRecords = [];
 let activeRecord = null;
@@ -189,13 +183,6 @@ const notifiedTodoIds = new Set();
 let reminderTimer = null;
 let calendarExpanded = false;
 let resetCooldownTimer = null;
-
-const pomodoro = {
-  mode: "focus",
-  running: false,
-  remaining: 25 * 60,
-  timer: null,
-};
 
 function setMsg(el, s, kind = "info") {
   el.textContent = s || "";
@@ -518,7 +505,6 @@ function showSecurityPanel(kind) {
 
 async function bootstrap() {
   initDueDefaults();
-  updatePomodoroDisplay();
   updateNotificationStatus();
   await loadVersionInfo();
   const token = localStorage.getItem("todo_token");
@@ -541,6 +527,9 @@ function showAuth() {
   els.appCard.classList.add("hidden");
   els.btnLogout.classList.add("hidden");
   els.btnSecurity.classList.add("hidden");
+  els.whoami.textContent = "账号：未登录";
+  todoStats = { active: 0, archived: 0, total: 0 };
+  updateTaskStats();
   setMsg(els.authMsg, "");
 }
 
@@ -549,7 +538,7 @@ function showApp(user) {
   els.appCard.classList.remove("hidden");
   els.btnLogout.classList.remove("hidden");
   els.btnSecurity.classList.remove("hidden");
-  els.whoami.textContent = `已登录：${user.email}`;
+  els.whoami.textContent = `账号：${user.email}`;
   setMsg(els.appMsg, "");
 }
 
@@ -557,6 +546,7 @@ async function refresh() {
   setMsg(els.appMsg, "同步中...");
   const data = await API.listTodos();
   currentTodos = data.todos || [];
+  todoStats = data.stats || { active: currentTodos.length, archived: 0, total: currentTodos.length };
   renderTodos();
   renderCalendar();
   await refreshRecords();
@@ -564,11 +554,13 @@ async function refresh() {
   setMsg(els.appMsg, `已同步：${new Date().toLocaleTimeString()}`);
 }
 
+function updateTaskStats() {
+  els.taskStats.textContent = `活跃 ${todoStats.active || 0} · 已完成 ${todoStats.archived || 0} · 总计 ${todoStats.total || 0}`;
+}
+
 function renderTodos() {
   els.todoList.innerHTML = "";
-  const total = currentTodos.length;
-  const doneCount = currentTodos.filter((t) => t.done).length;
-  els.taskStats.textContent = `${doneCount} / ${total}`;
+  updateTaskStats();
 
   if (!currentTodos.length) {
     const empty = document.createElement("div");
@@ -1047,42 +1039,6 @@ async function generateDailyPlan() {
   }
 }
 
-function setPomodoroMode(mode) {
-  pomodoro.mode = mode;
-  pomodoro.running = false;
-  clearInterval(pomodoro.timer);
-  pomodoro.timer = null;
-  const minutes = mode === "focus" ? Number(els.focusMinutes.value) : Number(els.breakMinutes.value);
-  pomodoro.remaining = minutes * 60;
-  updatePomodoroDisplay();
-}
-
-function updatePomodoroDisplay() {
-  const minutes = Math.floor(pomodoro.remaining / 60);
-  const seconds = pomodoro.remaining % 60;
-  els.pomodoroTime.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  els.pomodoroMode.textContent = pomodoro.mode === "focus" ? "专注" : "休息";
-}
-
-function startPomodoro() {
-  if (pomodoro.running) return;
-  pomodoro.running = true;
-  pomodoro.timer = setInterval(() => {
-    pomodoro.remaining -= 1;
-    if (pomodoro.remaining <= 0) {
-      setPomodoroMode(pomodoro.mode === "focus" ? "break" : "focus");
-      return;
-    }
-    updatePomodoroDisplay();
-  }, 1000);
-}
-
-function pausePomodoro() {
-  pomodoro.running = false;
-  clearInterval(pomodoro.timer);
-  pomodoro.timer = null;
-}
-
 els.btnLogin.addEventListener("click", async () => {
   setMsg(els.authMsg, "");
   const email = (els.authEmail.value || "").trim();
@@ -1272,15 +1228,6 @@ els.newTitle.addEventListener("keydown", (ev) => {
   els.btnAddTodo.click();
 });
 
-els.btnPomodoroStart.addEventListener("click", startPomodoro);
-els.btnPomodoroPause.addEventListener("click", pausePomodoro);
-els.btnPomodoroReset.addEventListener("click", () => setPomodoroMode(pomodoro.mode));
-els.focusMinutes.addEventListener("change", () => {
-  if (pomodoro.mode === "focus") setPomodoroMode("focus");
-});
-els.breakMinutes.addEventListener("change", () => {
-  if (pomodoro.mode === "break") setPomodoroMode("break");
-});
 els.btnEnableNotifications.addEventListener("click", async () => {
   if (!("Notification" in window)) {
     updateNotificationStatus();

@@ -1,4 +1,5 @@
 import json
+import json
 import os
 import sqlite3
 import time
@@ -68,6 +69,66 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertIn("source_event_id", record_columns)
         self.assertIn("source_sender_json", record_columns)
         self.assertIn("source_record_id", todo_columns)
+        self.assertIn("archived_at", todo_columns)
+
+    def test_done_todo_moves_from_active_list_to_archive(self):
+        now = server._utc_now_iso()
+        cur = self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, archived_at, created_at, updated_at)
+            VALUES (1, 'todo-archive', '完成归档', '', 1, 'none', NULL, NULL, 0, NULL, NULL, NULL, ?, ?)
+            """,
+            (now, now),
+        )
+        todo_id = int(cur.lastrowid)
+
+        status, patched = self.request("PATCH", f"/api/todos/{todo_id}", {"done": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(patched["ok"])
+
+        row = self.conn.execute("SELECT done, done_at, archived_at FROM todos WHERE id = ?", (todo_id,)).fetchone()
+        self.assertEqual(row["done"], 1)
+        self.assertIsNotNone(row["done_at"])
+        self.assertIsNotNone(row["archived_at"])
+
+        status, active = self.request("GET", "/api/todos")
+        self.assertEqual(status, 200)
+        self.assertEqual(active["todos"], [])
+        self.assertEqual(active["stats"]["active"], 0)
+        self.assertEqual(active["stats"]["archived"], 1)
+
+        status, archive = self.request("GET", "/api/todos/archive")
+        self.assertEqual(status, 200)
+        self.assertEqual([t["title"] for t in archive["todos"]], ["完成归档"])
+        self.assertIsNotNone(archive["todos"][0]["archivedAt"])
+
+    def test_archive_is_scoped_to_current_account(self):
+        salt = b"3" * 16
+        self.conn.execute(
+            "INSERT INTO users(email, pw_salt, pw_hash, created_at) VALUES (?, ?, ?, ?)",
+            ("other@example.com", salt, server.password_hash("password", salt), server._utc_now_iso()),
+        )
+        now = server._utc_now_iso()
+        self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, archived_at, created_at, updated_at)
+            VALUES (1, 'mine-archived', '我的归档', '', 1, 'none', NULL, NULL, 1, ?, NULL, ?, ?, ?)
+            """,
+            (now, now, now, now),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, archived_at, created_at, updated_at)
+            VALUES (2, 'other-archived', '他人归档', '', 1, 'none', NULL, NULL, 1, ?, NULL, ?, ?, ?)
+            """,
+            (now, now, now, now),
+        )
+
+        status, archive = self.request("GET", "/api/todos/archive")
+
+        self.assertEqual(status, 200)
+        self.assertEqual([t["title"] for t in archive["todos"]], ["我的归档"])
+        self.assertEqual(archive["stats"]["archived"], 1)
 
     def test_create_record_saves_original_input_and_lists_it(self):
         server.AI_API_KEY = ""

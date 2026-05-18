@@ -1,155 +1,135 @@
-# 浠诲姟娓呭崟锛氶涔﹂殢璁板叆鍙ｄ笌 AI 鏀朵欢绠辩粺涓€鏁寸悊
+# 任务清单：飞书随记入口与 AI 收件箱统一整理
 
-> 鏂囨。璇█锛氶櫎浠ｇ爜鏍囪瘑绗︺€佸懡浠ゃ€佺幆澧冨彉閲忋€丄PI 璺緞銆侀敊璇爜鍜岀涓夋柟涓撴湁鍚嶈瘝澶栵紝鏈换鍔℃竻鍗曞繀椤讳娇鐢ㄤ腑鏂囨挵鍐欏苟褰掓。銆?**杈撳叆**锛氭潵鑷?`specs/002-feishu-inbox-ai-organize/` 鐨勮璁℃枃妗? 
-**鍓嶇疆鏉′欢**锛歚plan.md`銆乣spec.md`銆乣research.md`銆乣data-model.md`銆乣contracts/feishu-inbox-contract.md`銆乣quickstart.md`
+> 文档语言：除代码标识符、命令、环境变量、API 路径、错误码和第三方专有名词外，本任务清单必须使用中文撰写并归档。
 
-**娴嬭瘯瑕佹眰**锛氭湰鍔熻兘娑夊強椋炰功鎺ュ叆銆丄I 鏁寸悊銆佹暟鎹縼绉诲拰鍏变韩鍚庣琛屼负锛屽繀椤诲寘鍚嚜鍔ㄥ寲娴嬭瘯銆? 
-**缁勭粐鏂瑰紡**锛氫换鍔℃寜鐢ㄦ埛鏁呬簨鍒嗙粍锛岀‘淇濇瘡涓晠浜嬪彲浠ョ嫭绔嬪疄鐜般€佺嫭绔嬫祴璇曞拰鐙珛婕旂ず銆?
-## Phase 1锛氬噯澶囧伐浣滐紙鍏变韩鍩虹锛?
-**鐩殑**锛氱‘璁ゅ綋鍓嶅垎鏀€佽鏍煎拰鐜版湁椋炰功/records 杈圭晫锛岄伩鍏嶅疄鐜板亸绂昏鍒掋€?
-- [x] T001 纭褰撳墠鍒嗘敮涓?`002-feishu-inbox-ai-organize`锛屽苟闃呰 `specs/002-feishu-inbox-ai-organize/plan.md`
-- [x] T002 [P] 闃呰鐜版湁椋炰功鍏ュ彛瀹炵幇骞惰褰曞奖鍝嶇偣锛歚server.py`銆乣feishu_client.py`
-- [x] T003 [P] 闃呰鐜版湁 records 涓?AI 娴嬭瘯杈圭晫锛歚tests/test_records.py`銆乣tests/test_feishu.py`銆乣tests/test_feishu_client.py`
+**输入**：来自 `specs/002-feishu-inbox-ai-organize/` 的设计文档  
+**前置条件**：`plan.md`、`spec.md`、`research.md`、`data-model.md`、`contracts/feishu-inbox-contract.md`、`quickstart.md`
 
----
+**测试要求**：本功能涉及飞书接入、AI 整理、数据迁移和共享后端行为，必须包含自动化测试。  
+**组织方式**：任务按用户故事分组，确保每个故事可以独立实现、独立测试和独立演示。
 
-## Phase 2锛氬熀纭€璁炬柦锛堥樆濉炲墠缃級
+## Phase 1：准备工作（共享基础）
 
-**鐩殑**锛氬畬鎴愭墍鏈夌敤鎴锋晠浜嬪叡浜殑鏁版嵁妯″瀷銆佸箓绛夊瓧娈靛拰閫氱敤澶勭悊鍑芥暟銆?**鍏抽敭瑕佹眰**锛氭湰闃舵瀹屾垚鍓嶏紝涓嶅緱寮€濮嬩换浣曠敤鎴锋晠浜嬪疄鐜般€?
-- [x] T004 鍦?`tests/test_records.py` 涓坊鍔?records 杩佺Щ娴嬭瘯锛岃鐩?`source`銆乣source_event_id`銆乣source_sender_json` 瀛楁
-- [x] T005 鍦?`server.py` 鐨?records schema 鍜?migration 涓坊鍔?`source`銆乣source_event_id`銆乣source_sender_json` 瀛楁鍙婇涔︿簨浠跺幓閲嶇储寮?
-- [x] T006 鍦?`server.py` 涓墿灞?`serialize_record_row`锛岃緭鍑?`source`銆乣sourceEventId`銆乣sourceSender` 瀛楁
-- [x] T007 鍦?`server.py` 涓墿灞?`create_record`锛屾敮鎸佷紶鍏ユ潵婧愩€佹潵婧愪簨浠?ID銆佹潵婧愬彂閫佽€呬俊鎭苟淇濇寔 Web/PWA 榛樿鏉ユ簮涓?`web`
-- [x] T008 鍦?`server.py` 涓柊澧為涔︽秷鎭厓鏁版嵁鎻愬彇宸ュ叿鍑芥暟锛岃鐩?message ID銆乻ender銆乧hat ID 鍜屾枃鏈被鍨嬪垽鏂?
-- [x] T009 [P] 鍦?`tests/test_feishu.py` 涓坊鍔犻涔︽秷鎭?ID 鍜屽彂閫佽€呬俊鎭彁鍙栨祴璇?
-**妫€鏌ョ偣**锛歳ecords 鏀寔鏉ユ簮鍏冩暟鎹紱Web/PWA 鍘熸湁 record 鍒涘缓璺緞涓嶅彉锛涢涔﹀叆鍙ｅ叿澶囧箓绛夋墍闇€鍩虹瀛楁銆?
----
+**目的**：确认当前分支、规格和现有飞书/records 边界，避免实现偏离计划。
 
-## Phase 3锛氱敤鎴锋晠浜?1 - 椋炰功娑堟伅杩涘叆闅忚鏀朵欢绠憋紙P1锛孧VP锛?
-**鐩爣**锛氶涔︽湁鏁堟枃鏈厛鍒涘缓鏉ユ簮涓洪涔︾殑 record锛屼笉鍐嶇洿鎺ュ垱寤烘寮忎换鍔°€?
-**鐙珛娴嬭瘯**锛氬悜椋炰功浜嬩欢鍏ュ彛鍙戦€佹湁鏁堟枃鏈秷鎭悗锛宺ecords 涓嚭鐜版潵婧愪负椋炰功鐨勮褰曪紝todos 琛ㄦ病鏈夋柊澧炰换鍔★紱鍒锋柊 Web/PWA 鍙互鐪嬪埌璇ヨ褰曘€?
-### 鐢ㄦ埛鏁呬簨 1 鐨勬祴璇?
-- [x] T010 [P] [US1] 鍦?`tests/test_feishu.py` 涓坊鍔?HTTP 椋炰功浜嬩欢鍒涘缓 record 涓斾笉鍒涘缓 todo 鐨勬祴璇?
-- [x] T011 [P] [US1] 鍦?`tests/test_feishu_client.py` 涓坊鍔犻暱杩炴帴 handler 鍒涘缓 record 涓斾笉璋冪敤鐩存帴寤轰换鍔℃棫璺緞鐨勬祴璇?
-- [x] T012 [P] [US1] 鍦?`tests/test_records.py` 涓坊鍔?`GET /api/records` 杩斿洖椋炰功鏉ユ簮瀛楁鐨勬祴璇?
-### 鐢ㄦ埛鏁呬簨 1 鐨勫疄鐜?
-- [x] T013 [US1] 鍦?`server.py` 涓柊澧?`create_feishu_record` 鎴栫瓑浠峰嚱鏁帮紝鎸夐粯璁よ处鍙峰垱寤烘潵婧愪负 `feishu` 鐨?record
-- [x] T014 [US1] 鍦?`server.py` 鐨?`/api/feishu/events` 璺緞涓敼涓鸿皟鐢ㄩ涔?record 鍒涘缓閫昏緫锛屼笉鍐嶇洿鎺ヨ皟鐢?`create_feishu_todo` 鎴?`create_feishu_ai_todos`
-- [x] T015 [US1] 鍦?`feishu_client.py` 涓敼閫?`handle_feishu_event_payload`锛屽鐢ㄤ笌 HTTP 椋炰功鍏ュ彛涓€鑷寸殑 record 鍒涘缓閫昏緫
-- [x] T016 [US1] 鍦?`server.py` 涓‘淇濋涔︾┖鏂囨湰銆侀潪鏂囨湰鍜岃秴闀挎枃鏈笉浼氬垱寤烘甯?record锛屽苟杩斿洖鍙帓鏌ョ姸鎬?
-- [x] T017 [US1] 鍦?`web/app.js` 鍜?`web/index.html` 涓‘璁ゆ垨琛ュ厖闅忚鍒楄〃灞曠ず鏉ユ簮涓洪涔︾殑鏍囪瘑
-- [x] T018 [US1] 鍦?`web/styles.css` 涓ˉ鍏呮潵婧愭爣璇嗘牱寮忥紝淇濇寔鐜版湁鐣岄潰瀵嗗害鍜屽彲璇绘€?
-**妫€鏌ョ偣**锛氶涔︽秷鎭彲浠ョ嫭绔嬭繘鍏ラ殢璁版敹浠剁锛涙寮忎换鍔′笉浼氳嚜鍔ㄦ柊澧炪€?
----
+- [x] T001 确认当前分支为 `002-feishu-inbox-ai-organize`，并阅读 `specs/002-feishu-inbox-ai-organize/plan.md`
+- [x] T002 [P] 阅读现有飞书入口实现并记录影响点：`server.py`、`feishu_client.py`
+- [x] T003 [P] 阅读现有 records 与 AI 测试边界：`tests/test_records.py`、`tests/test_feishu.py`、`tests/test_feishu_client.py`
 
-## Phase 4锛氱敤鎴锋晠浜?2 - 椋炰功闅忚鑷姩鏁寸悊涓哄彲瀹℃煡缁撴灉锛圥1锛?
-**鐩爣**锛氶涔?record 鍒涘缓鍚庣珛鍗虫墽琛?AI 鏁寸悊锛屾垚鍔?澶辫触閮戒繚鐣欏湪鍚屼竴鏉?record 涓婏紝骞跺悜椋炰功鍥炲鐘舵€併€?
-**鐙珛娴嬭瘯**锛氬彂閫佸寘鍚换鍔″拰鏃ユ湡鐨勯涔︽秷鎭悗锛宺ecord 杩涘叆 `ready` 鎴?`failed` 鐘舵€侊紱鎴愬姛鏃惰繑鍥炰换鍔¤崏绋夸絾涓嶅垱寤烘寮忎换鍔★紱澶辫触鏃朵繚鐣欏師鏂囧拰閿欒銆?
-### 鐢ㄦ埛鏁呬簨 2 鐨勬祴璇?
-- [x] T019 [P] [US2] 鍦?`tests/test_feishu.py` 涓坊鍔?AI 鎴愬姛鏃堕涔?record 鏇存柊涓?`ready` 涓斾笉鍒涘缓 todo 鐨勬祴璇?
-- [x] T020 [P] [US2] 鍦?`tests/test_feishu.py` 涓坊鍔?AI 鏈厤缃垨鏃犳晥 JSON 鏃?record 鏍囪 `failed` 鐨勬祴璇?
-- [x] T021 [P] [US2] 鍦?`tests/test_feishu_client.py` 涓坊鍔犳垚鍔熷拰澶辫触閮界敓鎴愰涔﹀洖澶嶆枃妗堢殑娴嬭瘯
+## Phase 2：基础设施（阻塞前置）
 
-### 鐢ㄦ埛鏁呬簨 2 鐨勫疄鐜?
-- [x] T022 [US2] 鍦?`server.py` 涓娊鍙?Web/PWA 鍜岄涔﹀叡鐢ㄧ殑 record AI 鏁寸悊鍑芥暟锛屽鐢?`call_xiaomi_record_organizer` 涓?`update_record_ai_result`
-- [x] T023 [US2] 鍦?`server.py` 涓椋炰功浜嬩欢澶勭悊鍦ㄥ垱寤?record 鍚庣珛鍗宠皟鐢ㄥ叡鐢?AI 鏁寸悊鍑芥暟锛屽苟杩斿洖 `aiStatus`銆乣recordId` 鍜岄敊璇俊鎭?
-- [x] T024 [US2] 鍦?`feishu_client.py` 涓牴鎹鐞嗙粨鏋滃洖澶嶉涔︽垚鍔熸垨澶辫触鐘舵€侊紝涓嶅啀鍙洖澶嶁€滄敹鍒扳€?
-- [x] T025 [US2] 鍦?`server.py` 涓褰曢涔﹀鐞嗘棩蹇楋紝鍖呭惈 record ID銆丄I 鐘舵€佸拰 duplicate 鐘舵€侊紝涓斾笉寰楄緭鍑哄瘑閽?
-- [x] T026 [US2] 鍦?`web/app.js` 涓‘璁ら涔?record 璇︽儏娌跨敤鐜版湁浠诲姟鑽夌瀹℃煡锛屼笉鑷姩淇濆瓨姝ｅ紡浠诲姟
+**目的**：完成所有用户故事共享的数据模型、幂等字段和通用处理函数。
 
-**妫€鏌ョ偣**锛氶涔﹂殢璁板叿澶囦笌 Web/PWA 杈撳叆涓€鑷寸殑 AI 鏁寸悊缁撴灉锛涢涔︽敹鍒版垚鍔熸垨澶辫触鍙嶉銆?
----
+- [x] T004 在 `tests/test_records.py` 中添加 records 迁移测试，覆盖 `source`、`source_event_id`、`source_sender_json` 字段
+- [x] T005 在 `server.py` 的 records schema 和 migration 中添加 `source`、`source_event_id`、`source_sender_json` 字段及飞书事件去重索引
+- [x] T006 在 `server.py` 中扩展 `serialize_record_row`，输出 `source`、`sourceEventId`、`sourceSender` 字段
+- [x] T007 在 `server.py` 中扩展 `create_record`，支持传入来源、来源事件 ID、来源发送者信息并保持 Web/PWA 默认来源为 `web`
+- [x] T008 在 `server.py` 中新增飞书消息元数据提取工具函数，覆盖 message ID、sender、chat ID 和文本类型判断
+- [x] T009 [P] 在 `tests/test_feishu.py` 中添加飞书消息 ID 和发送者信息提取测试
 
-## Phase 5锛氱敤鎴锋晠浜?3 - 浠庨涔﹁褰曠‘璁ょ敓鎴愭寮忎换鍔★紙P2锛?
-**鐩爣**锛氱敤鎴峰湪 Web/PWA 涓粠椋炰功 record 鐨勪换鍔¤崏绋跨‘璁ゅ垱寤烘寮忎换鍔★紝骞朵繚鐣欐潵婧愯拷婧€?
-**鐙珛娴嬭瘯**锛氶€夋嫨椋炰功 record 鐨勪换鍔¤崏绋夸繚瀛樺悗锛屾寮?todo 鍒涘缓鎴愬姛锛宍source_record_id` 鎸囧悜璇?record锛涙湭閫夋嫨鑽夌涓嶅垱寤轰换鍔°€?
-### 鐢ㄦ埛鏁呬簨 3 鐨勬祴璇?
-- [x] T027 [P] [US3] 鍦?`tests/test_records.py` 涓坊鍔犻涔︽潵婧?record 淇濆瓨浠诲姟鑽夌鍚庝繚鐣?`source_record_id` 鐨勬祴璇?
-- [x] T028 [P] [US3] 鍦?`tests/test_records.py` 涓坊鍔犳潵婧?record 杞垹闄ゅ悗宸插垱寤?todo 浠嶅瓨鍦ㄥ苟鏄剧ず deleted 鏉ユ簮鐘舵€佺殑鍥炲綊娴嬭瘯
+## Phase 3：用户故事 1 - 飞书消息进入随记收件箱（P1，MVP）
 
-### 鐢ㄦ埛鏁呬簨 3 鐨勫疄鐜?
-- [x] T029 [US3] 鍦?`server.py` 涓‘璁?`POST /api/records/{id}/todos` 瀵?`source = feishu` 鐨?record 璧扮幇鏈夌‘璁ゅ垱寤鸿矾寰?
-- [x] T030 [US3] 鍦?`web/app.js` 涓‘璁ら涔︽潵婧?record 鐨勪换鍔¤崏绋块€夋嫨銆侀儴鍒嗕繚瀛樺拰鍏宠仈浠诲姟灞曠ず涓?Web 鏉ユ簮涓€鑷?
-- [x] T031 [US3] 鍦?`web/index.html` 鍜?`web/styles.css` 涓ˉ鍏呮潵婧愯褰曡拷婧睍绀烘墍闇€鐨勬渶灏?UI 鏂囨鎴栨牱寮?
-**妫€鏌ョ偣**锛氶涔﹁褰曡兘鍦?Web/PWA 涓浆涓烘寮忎换鍔★紱杩芥函鍏崇郴鍒锋柊鍚庝粛鍙銆?
----
+**目标**：飞书有效文本先创建来源为飞书的 record，不再直接创建正式任务。
 
-## Phase 6锛氱敤鎴锋晠浜?4 - 閲嶅娑堟伅涓庡鐞嗙姸鎬侊紙P3锛?
-**鐩爣**锛氬悓涓€椋炰功娑堟伅浜嬩欢 ID 閲嶅閫佽揪鏃朵笉鍒涘缓閲嶅 record锛屽苟鑳借〃杈惧鐞嗙姸鎬併€?
-**鐙珛娴嬭瘯**锛氳繛缁彁浜や袱娆＄浉鍚岄涔︽秷鎭簨浠?ID锛屽彧浜х敓涓€鏉℃甯?record锛涚浜屾杩斿洖 duplicate 鐘舵€併€?
-### 鐢ㄦ埛鏁呬簨 4 鐨勬祴璇?
-- [x] T032 [P] [US4] 鍦?`tests/test_feishu.py` 涓坊鍔犵浉鍚岄涔︽秷鎭簨浠?ID 閲嶅閫佽揪鍙垱寤轰竴鏉?record 鐨勬祴璇?
-- [x] T033 [P] [US4] 鍦?`tests/test_feishu_client.py` 涓坊鍔?duplicate 缁撴灉涓嶄細閲嶅鍥炲璇鎬ф垚鍔熸枃妗堢殑娴嬭瘯
+- [x] T010 [P] [US1] 在 `tests/test_feishu.py` 中添加 HTTP 飞书事件创建 record 且不创建 todo 的测试
+- [x] T011 [P] [US1] 在 `tests/test_feishu_client.py` 中添加长连接 handler 创建 record 且不调用直接建任务旧路径的测试
+- [x] T012 [P] [US1] 在 `tests/test_records.py` 中添加 `GET /api/records` 返回飞书来源字段的测试
+- [x] T013 [US1] 在 `server.py` 中新增 `create_feishu_record` 或等价函数，按默认账号创建来源为 `feishu` 的 record
+- [x] T014 [US1] 在 `server.py` 的 `/api/feishu/events` 路径中改为调用飞书 record 创建逻辑，不再直接调用 `create_feishu_todo` 或 `create_feishu_ai_todos`
+- [x] T015 [US1] 在 `feishu_client.py` 中改造 `handle_feishu_event_payload`，复用与 HTTP 飞书入口一致的 record 创建逻辑
+- [x] T016 [US1] 在 `server.py` 中确保飞书空文本、非文本和超长文本不创建正常 record，并返回可排查状态
+- [x] T017 [US1] 在 `web/app.js` 和 `web/index.html` 中确认或补充随记列表展示来源为飞书的标识
+- [x] T018 [US1] 在 `web/styles.css` 中补充来源标识样式，保持现有界面密度和可读性
 
-### 鐢ㄦ埛鏁呬簨 4 鐨勫疄鐜?
-- [x] T034 [US4] 鍦?`server.py` 涓疄鐜版寜 `source = feishu` 鍜?`source_event_id` 鏌ヨ宸叉湁 record 鐨勫箓绛夐€昏緫
-- [x] T035 [US4] 鍦?`server.py` 涓閲嶅椋炰功浜嬩欢杩斿洖 `duplicate = true` 鍜屾棦鏈?`recordId`
-- [x] T036 [US4] 鍦?`feishu_client.py` 涓鐞?duplicate 缁撴灉鐨勯涔﹀洖澶嶆枃妗?
-- [x] T037 [US4] 鍦?`web/app.js` 涓‘璁ゆ敹浠剁鍒楄〃鍜岃鎯呰兘灞曠ず `pending`銆乣processing`銆乣ready`銆乣failed` 鐘舵€?
-**妫€鏌ョ偣**锛氶噸澶嶉涔︿簨浠朵笉浼氭薄鏌撴敹浠剁锛涚敤鎴疯兘鐞嗚В娑堟伅澶勭悊鐘舵€併€?
----
+## Phase 4：用户故事 2 - 飞书随记自动整理为可审查结果（P1）
 
-## Phase 7锛氭墦纾ㄤ笌妯垏鍏虫敞鐐?
-**鐩殑**锛氳ˉ榻愭枃妗ｃ€侀儴缃茶鏄庡拰鍏ㄩ噺楠岃瘉銆?
-- [x] T038 [P] 鏇存柊 `README.md` 鐨勯涔︽満鍣ㄤ汉璇存槑锛岃鏄庨涔︽秷鎭繘鍏ラ殢璁版敹浠剁涓斾笉鐩存帴鍒涘缓姝ｅ紡浠诲姟
-- [x] T039 [P] 鏇存柊 `docs/xiaomi-mimo-orbit-submission.md` 涓笌 AI/椋炰功鍏ュ彛鐩稿叧鐨勮鏄庯紝淇濇寔涓枃褰掓。
-- [x] T040 妫€鏌?`deploy/todo-sync-feishu.service` 鏄惁浠嶆弧瓒虫湰杞幆澧冨彉閲忚姹傦紝蹇呰鏃舵洿鏂版敞閲婃垨 README 寮曞
-- [x] T041 杩愯 `python -m py_compile server.py feishu_client.py`
-- [x] T042 杩愯 `python -m unittest tests/test_feishu.py tests/test_feishu_client.py tests/test_records.py tests/test_ai_organizer.py`
-- [ ] T043 鎸?`specs/002-feishu-inbox-ai-organize/quickstart.md` 鎵ц鎵嬪伐楠屾敹锛岃褰曠嚎涓婃垨鏈湴楠岃瘉缁撴灉
+**目标**：飞书 record 创建后立即执行 AI 整理，成功和失败都保留在同一条 record 上，并向飞书回复状态。
 
----
+- [x] T019 [P] [US2] 在 `tests/test_feishu.py` 中添加 AI 成功时飞书 record 更新为 `ready` 且不创建 todo 的测试
+- [x] T020 [P] [US2] 在 `tests/test_feishu.py` 中添加 AI 未配置或无效 JSON 时 record 标记 `failed` 的测试
+- [x] T021 [P] [US2] 在 `tests/test_feishu_client.py` 中添加成功和失败都生成飞书回复文案的测试
+- [x] T022 [US2] 在 `server.py` 中抽取 Web/PWA 和飞书共用的 record AI 整理函数，复用 `call_xiaomi_record_organizer` 与 `update_record_ai_result`
+- [x] T023 [US2] 在 `server.py` 中让飞书事件处理在创建 record 后立即调用共用 AI 整理函数，并返回 `aiStatus`、`recordId` 和错误信息
+- [x] T024 [US2] 在 `feishu_client.py` 中根据处理结果回复飞书成功或失败状态，不再只回复“收到”
+- [x] T025 [US2] 在 `server.py` 中记录飞书处理日志，包含 record ID、AI 状态和 duplicate 状态，且不得输出密钥
+- [x] T026 [US2] 在 `web/app.js` 中确认飞书 record 详情沿用现有任务草稿审查，不自动保存正式任务
 
-## 渚濊禆涓庢墽琛岄『搴?
-### 闃舵渚濊禆
+## Phase 5：用户故事 3 - 从飞书记录确认生成正式任务（P2）
 
-- **Phase 1 鍑嗗宸ヤ綔**锛氭棤渚濊禆锛屽彲浠ョ珛鍗冲紑濮嬨€?- **Phase 2 鍩虹璁炬柦**锛氫緷璧?Phase 1锛岄樆濉炴墍鏈夌敤鎴锋晠浜嬨€?- **Phase 3 鐢ㄦ埛鏁呬簨 1**锛氫緷璧?Phase 2锛屾槸 MVP銆?- **Phase 4 鐢ㄦ埛鏁呬簨 2**锛氫緷璧?Phase 3 鐨勯涔?record 鍒涘缓鑳藉姏銆?- **Phase 5 鐢ㄦ埛鏁呬簨 3**锛氫緷璧?Phase 3锛屽彲涓?Phase 4 鍚庡崐娈甸儴鍒嗗苟琛岋紝浣嗘渶缁堥獙鏀朵緷璧?AI 鑽夌鎴栨祴璇曟瀯閫犺崏绋裤€?- **Phase 6 鐢ㄦ埛鏁呬簨 4**锛氫緷璧?Phase 2 鐨勬潵婧愬瓧娈碉紝鍙湪 Phase 3 鍚庡苟琛屾帹杩涖€?- **Phase 7 鎵撶（**锛氫緷璧栨湰杞洰鏍囨晠浜嬪畬鎴愩€?
-### 鐢ㄦ埛鏁呬簨渚濊禆
+**目标**：用户在 Web/PWA 中从飞书 record 的任务草稿确认创建正式任务，并保留来源追溯。
 
-- **US1锛圥1锛?*锛氬熀纭€璁炬柦瀹屾垚鍚庡嵆鍙疄鐜帮紝鏄渶灏忓彲浜や粯銆?- **US2锛圥1锛?*锛氶渶瑕?US1 鐨勯涔?record 鍒涘缓璺緞銆?- **US3锛圥2锛?*锛氬鐢ㄧ幇鏈?records 纭浠诲姟璺緞锛岄渶瑕?US1 鐨勯涔︽潵婧?record銆?- **US4锛圥3锛?*锛氶渶瑕佹潵婧愪簨浠?ID 瀛楁鍜岄涔﹀叆鍙ｅ鐞嗚矾寰勩€?
-### 鍗曚釜鐢ㄦ埛鏁呬簨鍐呴儴椤哄簭
+- [x] T027 [P] [US3] 在 `tests/test_records.py` 中添加飞书来源 record 保存任务草稿后保留 `source_record_id` 的测试
+- [x] T028 [P] [US3] 在 `tests/test_records.py` 中添加来源 record 软删除后已创建 todo 仍存在并显示 deleted 来源状态的回归测试
+- [x] T029 [US3] 在 `server.py` 中确认 `POST /api/records/{id}/todos` 对 `source = feishu` 的 record 走现有确认创建路径
+- [x] T030 [US3] 在 `web/app.js` 中确认飞书来源 record 的任务草稿选择、部分保存和关联任务展示与 Web 来源一致
+- [x] T031 [US3] 在 `web/index.html` 和 `web/styles.css` 中补充来源记录追溯展示所需的最小 UI 文案或样式
 
-- 娴嬭瘯鍏堝啓锛屽苟鍦ㄥ疄鐜板墠纭澶辫触銆?- 鏁版嵁杩佺Щ鍜屽簭鍒楀寲鍏堜簬浜嬩欢澶勭悊銆?- 鏈嶅姟绔鐞嗗厛浜庨涔﹀鎴风鍥炲銆?- Web/PWA 灞曠ず鍙仛鏀寔楠屾敹鎵€闇€鐨勬渶灏忔敼鍔ㄣ€?
-### 鍙苟琛屾満浼?
-- T002 鍜?T003 鍙苟琛岄槄璇讳笉鍚屾枃浠躲€?- T009 鍙笌 T005/T006 鍚庡崐娈靛苟琛屽噯澶囨祴璇曘€?- 鍚屼竴鏁呬簨涓殑娴嬭瘯浠诲姟閫氬父鍙苟琛岋紝浣嗗疄鐜?`server.py` 鐨勪换鍔￠渶瑕佷覆琛屾暣鍚堛€?- Web/PWA 灞曠ず浠诲姟 T017/T018銆乀030/T031 鍙湪鏈嶅姟绔瓧娈电ǔ瀹氬悗骞惰銆?- 鏂囨。浠诲姟 T038/T039 鍙笌鏈€缁堥獙璇佸噯澶囧苟琛屻€?
----
+## Phase 6：用户故事 4 - 重复消息与处理状态（P3）
 
-## 骞惰绀轰緥
+**目标**：同一飞书消息事件 ID 重复送达时不创建重复 record，并能表达处理状态。
 
-### 鐢ㄦ埛鏁呬簨 1
+- [x] T032 [P] [US4] 在 `tests/test_feishu.py` 中添加相同飞书消息事件 ID 重复送达只创建一条 record 的测试
+- [x] T033 [P] [US4] 在 `tests/test_feishu_client.py` 中添加 duplicate 结果不会重复回复误导性成功文案的测试
+- [x] T034 [US4] 在 `server.py` 中实现按 `source = feishu` 和 `source_event_id` 查询已有 record 的幂等逻辑
+- [x] T035 [US4] 在 `server.py` 中让重复飞书事件返回 `duplicate = true` 和既有 `recordId`
+- [x] T036 [US4] 在 `feishu_client.py` 中处理 duplicate 结果的飞书回复文案
+- [x] T037 [US4] 在 `web/app.js` 中确认收件箱列表和详情能展示 `pending`、`processing`、`ready`、`failed` 状态
 
-```text
-Task: "T010 鍦?tests/test_feishu.py 涓坊鍔?HTTP 椋炰功浜嬩欢鍒涘缓 record 涓斾笉鍒涘缓 todo 鐨勬祴璇?
-Task: "T011 鍦?tests/test_feishu_client.py 涓坊鍔犻暱杩炴帴 handler 鍒涘缓 record 涓斾笉璋冪敤鐩存帴寤轰换鍔℃棫璺緞鐨勬祴璇?
-Task: "T012 鍦?tests/test_records.py 涓坊鍔?GET /api/records 杩斿洖椋炰功鏉ユ簮瀛楁鐨勬祴璇?
-```
+## Phase 7：打磨与横切关注点
 
-### 鐢ㄦ埛鏁呬簨 2
+**目的**：补齐文档、部署说明和全量验证。
 
-```text
-Task: "T019 鍦?tests/test_feishu.py 涓坊鍔?AI 鎴愬姛鏃堕涔?record 鏇存柊涓?ready 涓斾笉鍒涘缓 todo 鐨勬祴璇?
-Task: "T020 鍦?tests/test_feishu.py 涓坊鍔?AI 鏈厤缃垨鏃犳晥 JSON 鏃?record 鏍囪 failed 鐨勬祴璇?
-Task: "T021 鍦?tests/test_feishu_client.py 涓坊鍔犳垚鍔熷拰澶辫触閮界敓鎴愰涔﹀洖澶嶆枃妗堢殑娴嬭瘯"
-```
+- [x] T038 [P] 更新 `README.md` 的飞书机器人说明，说明飞书消息进入随记收件箱且不直接创建正式任务
+- [x] T039 [P] 更新 `docs/xiaomi-mimo-orbit-submission.md` 中与 AI/飞书入口相关的说明，保持中文归档
+- [x] T040 检查 `deploy/todo-sync-feishu.service` 是否仍满足本轮环境变量要求，必要时更新注释或 README 引导
+- [x] T041 运行 `python -m py_compile server.py feishu_client.py`
+- [x] T042 运行 `python -m unittest tests/test_feishu.py tests/test_feishu_client.py tests/test_records.py tests/test_ai_organizer.py`
+- [ ] T043 按 `specs/002-feishu-inbox-ai-organize/quickstart.md` 执行手工验收，记录线上或本地验证结果
 
-### 鐢ㄦ埛鏁呬簨 4
+## Phase 8：2026-05-17 首页体验与完成归档迭代
 
-```text
-Task: "T032 鍦?tests/test_feishu.py 涓坊鍔犵浉鍚岄涔︽秷鎭簨浠?ID 閲嶅閫佽揪鍙垱寤轰竴鏉?record 鐨勬祴璇?
-Task: "T033 鍦?tests/test_feishu_client.py 涓坊鍔?duplicate 缁撴灉涓嶄細閲嶅鍥炲璇鎬ф垚鍔熸枃妗堢殑娴嬭瘯"
-```
+**目的**：解决首页核心操作位置过低、番茄钟伪需求占位、完成任务堆积的问题；任务完成后按账号归档，并把账户、版本和任务完成情况上移到顶部。
 
----
+### 用户故事 5 的测试
 
-## 瀹炴柦绛栫暐
+- [x] T044 [P] [US5] 在 `tests/test_records.py` 中添加 `todos.archived_at` 迁移测试，确认归档字段随数据库初始化和迁移存在
+- [x] T045 [P] [US5] 在 `tests/test_records.py` 中添加完成任务后从 `GET /api/todos` 移除、进入 `GET /api/todos/archive` 的测试
+- [x] T046 [P] [US5] 在 `tests/test_records.py` 中添加归档按账号隔离的测试，确认另一个账号无法看到当前账号归档任务
 
-### MVP 浼樺厛锛堝彧鍋氱敤鎴锋晠浜?1锛?
-1. 瀹屾垚 Phase 1 鍜?Phase 2銆?2. 瀹屾垚 Phase 3锛岃椋炰功娑堟伅杩涘叆闅忚鏀朵欢绠变笖涓嶅垱寤烘寮忎换鍔°€?3. 杩愯 US1 鐩稿叧娴嬭瘯骞舵墜宸ョ‘璁?Web/PWA 鍙銆?
-### 澧為噺浜や粯
+### 用户故事 5 的实现
 
-1. US1锛氶涔︽崟鑾疯繘鍏?records銆?2. US2锛氶涔︽秷鎭珛鍗?AI 鏁寸悊骞跺洖澶嶇姸鎬併€?3. US3锛歐eb/PWA 浠庨涔?record 纭姝ｅ紡浠诲姟銆?4. US4锛氶涔︿簨浠?ID 鍘婚噸鍜岀姸鎬佸畬鍠勩€?5. Phase 7锛氭枃妗ｃ€侀儴缃茶鏄庡拰鍏ㄩ噺楠岃瘉銆?
-### 瀹屾垚瀹氫箟
+- [x] T047 [US5] 在 `server.py` 中为 `todos` 增加 `archived_at` 字段迁移，并在任务序列化中保留归档时间
+- [x] T048 [US5] 在 `server.py` 中实现完成任务自动写入 `archived_at`，取消完成时清空 `archived_at`
+- [x] T049 [US5] 在 `server.py` 中让 `GET /api/todos` 只返回未归档活跃任务，并新增 `GET /api/todos/archive` 和顶部统计数据
+- [x] T050 [US5] 在 `web/index.html` 中移除番茄钟 DOM，取消“任务栏”面板表达，增加顶部账号、版本和完成情况状态区
+- [x] T051 [US5] 在 `web/index.html` 中把新增代办移动到右侧首个工作面板，把随记收件箱和今日计划后移
+- [x] T052 [US5] 在 `web/app.js` 中移除番茄钟状态和事件绑定，刷新时读取归档统计并更新顶部状态
+- [x] T053 [US5] 在 `web/styles.css` 中重排首屏布局，提高待办列表和新增代办的首屏优先级，并保证移动端不重叠
+- [x] T054 运行 `python -m py_compile server.py feishu_client.py`
+- [x] T055 运行 `python -m unittest tests/test_records.py tests/test_feishu.py tests/test_feishu_client.py tests/test_ai_organizer.py`
+- [x] T056 使用浏览器打开本地页面，检查桌面首屏不再出现番茄钟，活跃待办与新增代办位于首屏核心区域
 
-- 鎵€鏈変换鍔′娇鐢?checklist 鏍煎紡銆?- 鑷姩鍖栨祴璇曡鐩栭涔︽帴鍏ャ€丄I 鎴愬姛/澶辫触銆佸幓閲嶃€佹寮忎换鍔′笉鑷姩鍒涘缓鍜屾潵婧愯拷婧€?- `python -m py_compile server.py feishu_client.py` 閫氳繃銆?- 鎸囧畾 `unittest` 鍛戒护閫氳繃銆?- quickstart 鎵嬪伐楠屾敹鏃犲紓甯搞€?
+## 依赖与执行顺序
 
+- Phase 1 无依赖，可立即开始。
+- Phase 2 依赖 Phase 1，阻塞所有用户故事。
+- Phase 3 依赖 Phase 2，是 MVP。
+- Phase 4 依赖 Phase 3 的飞书 record 创建能力。
+- Phase 5 依赖 Phase 3，可与 Phase 4 后半段部分并行。
+- Phase 6 依赖 Phase 2 的来源字段，可在 Phase 3 后并行推进。
+- Phase 7 依赖本轮目标故事完成。
+- Phase 8 依赖现有 Web/PWA 和 todos API，可独立于飞书入口继续迭代。
 
+## 并行机会
+
+- T002 和 T003 可并行阅读不同文件。
+- 同一用户故事中的测试任务通常可并行，涉及 `server.py` 的实现任务需要串行整合。
+- Web/PWA 展示任务可在服务端字段稳定后并行。
+- 文档任务可与最终验证准备并行。
+
+## 实施策略
+
+1. MVP：先完成 Phase 1 到 Phase 3，让飞书消息进入随记收件箱且不创建正式任务。
+2. 增量交付：继续完成 AI 整理、任务确认、事件去重和状态展示。
+3. 首页体验迭代：完成 Phase 8，取消番茄钟、上移核心操作，并实现完成归档。
+4. 完成定义：自动化测试通过，`py_compile` 通过，关键 Web/PWA 首屏验收通过。

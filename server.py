@@ -309,6 +309,7 @@ def init_db(conn: sqlite3.Connection) -> None:
           due_at TEXT NULL,
           done INTEGER NOT NULL DEFAULT 0,
           done_at TEXT NULL,
+          archived_at TEXT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -388,6 +389,8 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE todos ADD COLUMN reminder_minutes INTEGER NULL")
     if not _column_exists(conn, "todos", "source_record_id"):
         conn.execute("ALTER TABLE todos ADD COLUMN source_record_id INTEGER NULL")
+    if not _column_exists(conn, "todos", "archived_at"):
+        conn.execute("ALTER TABLE todos ADD COLUMN archived_at TEXT NULL")
     if not _column_exists(conn, "records", "source"):
         conn.execute("ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT 'web'")
     if not _column_exists(conn, "records", "source_event_id"):
@@ -411,6 +414,9 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_todos_source_record ON todos(owner_user_id, source_record_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_todos_owner_archived ON todos(owner_user_id, archived_at)"
     )
     conn.execute(
         """
@@ -611,6 +617,24 @@ def _linked_todos_for_record(conn: sqlite3.Connection, user_id: int, record_id: 
         }
         for r in rows
     ]
+
+
+def _todo_stats(conn: sqlite3.Connection, user_id: int) -> dict[str, int]:
+    row = conn.execute(
+        """
+        SELECT
+          SUM(CASE WHEN deleted_at IS NULL AND archived_at IS NULL THEN 1 ELSE 0 END) AS active,
+          SUM(CASE WHEN deleted_at IS NULL AND archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived,
+          SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) AS total
+        FROM todos
+        WHERE owner_user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
+    active = int(row["active"] or 0) if row else 0
+    archived = int(row["archived"] or 0) if row else 0
+    total = int(row["total"] or 0) if row else 0
+    return {"active": active, "archived": archived, "total": total}
 
 
 def serialize_record_row(conn: sqlite3.Connection, row: sqlite3.Row, include_links: bool = True) -> dict[str, Any]:
@@ -1984,11 +2008,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(*json_ok({"plan": plan, "todoCount": len(todos)}))
                 return
 
-            if method == "GET" and path == "/api/todos":
+            if method == "GET" and path == "/api/todos/archive":
                 rows = DB.execute(
                     """
                     SELECT t.id, t.client_id, t.title, t.note, t.urgency, t.repeat_rule, t.reminder_minutes,
-                           t.due_at, t.done, t.done_at, t.created_at, t.updated_at, t.source_record_id,
+                           t.due_at, t.done, t.done_at, t.archived_at, t.created_at, t.updated_at, t.source_record_id,
                            r.summary AS source_record_summary,
                            r.deleted_at AS source_record_deleted_at
                     FROM todos t
@@ -1996,6 +2020,87 @@ class Handler(BaseHTTPRequestHandler):
                       ON r.id = t.source_record_id AND r.owner_user_id = t.owner_user_id
                     WHERE t.owner_user_id = ?
                       AND t.deleted_at IS NULL
+                      AND t.archived_at IS NOT NULL
+                    ORDER BY
+                      t.archived_at DESC,
+                      t.updated_at DESC
+                    """,
+                    (user.id,),
+                ).fetchall()
+                todo_ids = [int(r["id"]) for r in rows]
+                subtasks_by_todo: dict[int, list[dict[str, Any]]] = {tid: [] for tid in todo_ids}
+                if todo_ids:
+                    qmarks = ",".join("?" for _ in todo_ids)
+                    srows = DB.execute(
+                        f"""
+                        SELECT id, client_id, todo_id, title, done, done_at, created_at, updated_at
+                        FROM subtasks
+                        WHERE owner_user_id = ? AND todo_id IN ({qmarks})
+                          AND deleted_at IS NULL
+                        ORDER BY done ASC, updated_at DESC
+                        """,
+                        (user.id, *todo_ids),
+                    ).fetchall()
+                    for s in srows:
+                        tid = int(s["todo_id"])
+                        subtasks_by_todo.setdefault(tid, []).append(
+                            {
+                                "id": int(s["id"]),
+                                "clientId": s["client_id"],
+                                "todoId": tid,
+                                "title": s["title"],
+                                "done": bool(s["done"]),
+                                "doneAt": s["done_at"],
+                                "createdAt": s["created_at"],
+                                "updatedAt": s["updated_at"],
+                            }
+                        )
+                todos = []
+                for r in rows:
+                    tid = int(r["id"])
+                    todos.append(
+                        {
+                            "id": tid,
+                            "clientId": r["client_id"],
+                            "title": r["title"],
+                            "note": r["note"],
+                            "urgency": int(r["urgency"]),
+                            "repeatRule": r["repeat_rule"],
+                            "reminderMinutes": r["reminder_minutes"],
+                            "dueAt": r["due_at"],
+                            "done": bool(r["done"]),
+                            "doneAt": r["done_at"],
+                            "archivedAt": r["archived_at"],
+                            "createdAt": r["created_at"],
+                            "updatedAt": r["updated_at"],
+                            "sourceRecord": (
+                                {
+                                    "id": int(r["source_record_id"]),
+                                    "summary": r["source_record_summary"] or "",
+                                    "deleted": bool(r["source_record_deleted_at"]),
+                                }
+                                if r["source_record_id"] is not None
+                                else None
+                            ),
+                            "subtasks": subtasks_by_todo.get(tid, []),
+                        }
+                    )
+                self._send_json(*json_ok({"todos": todos, "stats": _todo_stats(DB, user.id)}))
+                return
+
+            if method == "GET" and path == "/api/todos":
+                rows = DB.execute(
+                    """
+                    SELECT t.id, t.client_id, t.title, t.note, t.urgency, t.repeat_rule, t.reminder_minutes,
+                           t.due_at, t.done, t.done_at, t.archived_at, t.created_at, t.updated_at, t.source_record_id,
+                           r.summary AS source_record_summary,
+                           r.deleted_at AS source_record_deleted_at
+                    FROM todos t
+                    LEFT JOIN records r
+                      ON r.id = t.source_record_id AND r.owner_user_id = t.owner_user_id
+                    WHERE t.owner_user_id = ?
+                      AND t.deleted_at IS NULL
+                      AND t.archived_at IS NULL
                     ORDER BY
                       t.done ASC,
                       CASE WHEN t.due_at IS NULL THEN 1 ELSE 0 END ASC,
@@ -2048,6 +2153,7 @@ class Handler(BaseHTTPRequestHandler):
                             "dueAt": r["due_at"],
                             "done": bool(r["done"]),
                             "doneAt": r["done_at"],
+                            "archivedAt": r["archived_at"],
                             "createdAt": r["created_at"],
                             "updatedAt": r["updated_at"],
                             "sourceRecord": (
@@ -2062,7 +2168,7 @@ class Handler(BaseHTTPRequestHandler):
                             "subtasks": subtasks_by_todo.get(tid, []),
                         }
                     )
-                self._send_json(*json_ok({"todos": todos}))
+                self._send_json(*json_ok({"todos": todos, "stats": _todo_stats(DB, user.id)}))
                 return
 
             if method == "POST" and path == "/api/todos":
@@ -2154,17 +2260,20 @@ class Handler(BaseHTTPRequestHandler):
                                 values.append(due_at)
                             done_changed = "done" in body
                             done = False
+                            now = _utc_now_iso()
                             if done_changed:
                                 done = bool(body.get("done"))
                                 fields.append("done = ?")
                                 values.append(1 if done else 0)
                                 fields.append("done_at = ?")
-                                values.append(_utc_now_iso() if done else None)
+                                values.append(now if done else None)
+                                fields.append("archived_at = ?")
+                                values.append(now if done else None)
                             if not fields:
                                 self._send_json(*json_error(400, "no fields to update"))
                                 return
                             fields.append("updated_at = ?")
-                            values.append(_utc_now_iso())
+                            values.append(now)
                             values.extend([todo_id, user.id])
                             DB.execute(
                                 f"UPDATE todos SET {', '.join(fields)} WHERE id = ? AND owner_user_id = ?",
