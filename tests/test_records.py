@@ -130,6 +130,62 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertEqual([t["title"] for t in archive["todos"]], ["我的归档"])
         self.assertEqual(archive["stats"]["archived"], 1)
 
+    def test_archive_filters_and_restore_todo(self):
+        now = server._utc_now_iso()
+        old = "2026-05-01T00:00:00Z"
+        keep = self._insert_todo(
+            "客户方案评审",
+            note="包含风险点",
+            urgency=2,
+            done=True,
+            done_at=now,
+            archived_at=now,
+        )
+        self._insert_todo(
+            "普通资料整理",
+            note="内部归档",
+            urgency=1,
+            done=True,
+            done_at=old,
+            archived_at=old,
+        )
+
+        status, archive = self.request("GET", f"/api/todos/archive?q={quote('风险')}&urgency=2&from=2026-05-20")
+        self.assertEqual(status, 200)
+        self.assertEqual([t["id"] for t in archive["todos"]], [keep])
+        self.assertEqual(archive["todos"][0]["subtaskSummary"]["total"], 0)
+
+        status, restored = self.request("POST", f"/api/todos/{keep}/restore", {})
+        self.assertEqual(status, 200)
+        self.assertFalse(restored["todo"]["done"])
+        self.assertIsNone(restored["todo"]["doneAt"])
+        self.assertIsNone(restored["todo"]["archivedAt"])
+        self.assertEqual(restored["stats"]["active"], 1)
+
+        status, active = self.request("GET", "/api/todos")
+        self.assertEqual(status, 200)
+        self.assertEqual([t["id"] for t in active["todos"]], [keep])
+
+    def test_restore_archive_is_scoped_to_current_account(self):
+        salt = b"4" * 16
+        self.conn.execute(
+            "INSERT INTO users(email, pw_salt, pw_hash, created_at) VALUES (?, ?, ?, ?)",
+            ("other2@example.com", salt, server.password_hash("password", salt), server._utc_now_iso()),
+        )
+        now = server._utc_now_iso()
+        cur = self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, archived_at, created_at, updated_at)
+            VALUES (2, 'other-restore', '他人归档任务', '', 1, 'none', NULL, NULL, 1, ?, NULL, ?, ?, ?)
+            """,
+            (now, now, now, now),
+        )
+
+        status, data = self.request("POST", f"/api/todos/{int(cur.lastrowid)}/restore", {})
+
+        self.assertEqual(status, 404)
+        self.assertIn("not found", data["error"])
+
     def test_create_record_saves_original_input_and_lists_it(self):
         server.AI_API_KEY = ""
 
@@ -297,6 +353,70 @@ class RecordsEndpointTests(unittest.TestCase):
         self.assertEqual(todos["todos"][0]["sourceRecord"]["id"], r1)
         self.assertEqual(todos["todos"][0]["sourceRecord"]["summary"], "任务记录")
 
+    def test_records_support_source_status_has_todo_and_keyword_filters(self):
+        r1 = self._insert_record("客户续费摘要", "task", ["客户"], "neutral", source="feishu", ai_status="ready")
+        self._insert_record("个人灵感", "idea", ["产品"], "positive", source="web", ai_status="failed")
+        self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, source_record_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, created_at, updated_at)
+            VALUES (1, 'todo-filter-source', ?, '跟进续费', '', 1, 'none', NULL, NULL, 0, NULL, NULL, ?, ?)
+            """,
+            (r1, server._utc_now_iso(), server._utc_now_iso()),
+        )
+
+        status, data = self.request(
+            "GET",
+            f"/api/records?source=feishu&status=ready&hasTodo=1&q={quote('续费')}&tag={quote('客户')}",
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual([r["id"] for r in data["records"]], [r1])
+
+    def test_bulk_delete_records_is_scoped_and_reports_counts(self):
+        mine = self._insert_record("我的记录", "note", [], "neutral")
+        salt = b"5" * 16
+        self.conn.execute(
+            "INSERT INTO users(email, pw_salt, pw_hash, created_at) VALUES (?, ?, ?, ?)",
+            ("bulk-other@example.com", salt, server.password_hash("password", salt), server._utc_now_iso()),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO records(owner_user_id, original_input, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
+            VALUES (2, '他人记录', '他人记录', 'note', '[]', '[]', 'neutral', 'ready', '', NULL, ?, ?)
+            """,
+            (server._utc_now_iso(), server._utc_now_iso()),
+        )
+        other = int(self.conn.execute("SELECT id FROM records WHERE owner_user_id = 2").fetchone()["id"])
+
+        status, data = self.request("POST", "/api/records/bulk", {"action": "delete", "ids": [mine, other, 9999]})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["result"], {"succeeded": 1, "failed": 0, "skipped": 2})
+        mine_row = self.conn.execute("SELECT deleted_at FROM records WHERE id = ?", (mine,)).fetchone()
+        other_row = self.conn.execute("SELECT deleted_at FROM records WHERE id = ?", (other,)).fetchone()
+        self.assertIsNotNone(mine_row["deleted_at"])
+        self.assertIsNone(other_row["deleted_at"])
+
+    def test_retry_record_does_not_create_todo(self):
+        server.AI_API_KEY = "test"
+        record_id = self._insert_record("失败记录", "other", [], "neutral", ai_status="failed")
+        content = json.dumps(
+            {
+                "record": {"summary": "重试摘要", "type": "task", "tags": ["客户"], "dates": [], "sentiment": "neutral"},
+                "items": [{"title": "只生成草稿", "urgency": 1}],
+            },
+            ensure_ascii=False,
+        )
+
+        with patch.object(server, "call_xiaomi_chat_messages", return_value=content):
+            status, data = self.request("POST", f"/api/records/{record_id}/retry", {})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["record"]["aiStatus"], "ready")
+        self.assertEqual(data["items"][0]["title"], "只生成草稿")
+        todo_count = self.conn.execute("SELECT COUNT(*) AS c FROM todos").fetchone()["c"]
+        self.assertEqual(int(todo_count), 0)
+
     def test_patch_record_and_manual_sync_dates(self):
         r1 = self._insert_record("旧摘要", "note", [], "neutral")
         self.conn.execute(
@@ -343,14 +463,25 @@ class RecordsEndpointTests(unittest.TestCase):
         status, todos = self.request("GET", "/api/todos")
         self.assertEqual(todos["todos"][0]["sourceRecord"]["deleted"], True)
 
-    def _insert_record(self, summary, record_type, tags, sentiment):
+    def _insert_record(self, summary, record_type, tags, sentiment, source="web", ai_status="ready"):
         now = server._utc_now_iso()
         cur = self.conn.execute(
             """
-            INSERT INTO records(owner_user_id, original_input, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
-            VALUES (1, ?, ?, ?, ?, ?, ?, 'ready', '', NULL, ?, ?)
+            INSERT INTO records(owner_user_id, original_input, source, source_event_id, source_sender_json, summary, record_type, tags_json, dates_json, sentiment, ai_status, ai_error, deleted_at, created_at, updated_at)
+            VALUES (1, ?, ?, '', '{}', ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
             """,
-            (summary, summary, record_type, json.dumps(tags, ensure_ascii=False), "[]", sentiment, now, now),
+            (summary, source, summary, record_type, json.dumps(tags, ensure_ascii=False), "[]", sentiment, ai_status, now, now),
+        )
+        return int(cur.lastrowid)
+
+    def _insert_todo(self, title, note="", urgency=1, done=False, done_at=None, archived_at=None):
+        now = server._utc_now_iso()
+        cur = self.conn.execute(
+            """
+            INSERT INTO todos(owner_user_id, client_id, title, note, urgency, repeat_rule, reminder_minutes, due_at, done, done_at, deleted_at, archived_at, created_at, updated_at)
+            VALUES (1, ?, ?, ?, ?, 'none', NULL, NULL, ?, ?, NULL, ?, ?, ?)
+            """,
+            (f"todo-{title}", title, note, urgency, 1 if done else 0, done_at, archived_at, now, now),
         )
         return int(cur.lastrowid)
 

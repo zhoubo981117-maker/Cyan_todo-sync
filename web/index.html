@@ -32,6 +32,13 @@
     </header>
 
     <main class="wrap">
+      <section id="versionNotice" class="version-notice hidden" aria-live="polite">
+        <div>
+          <strong id="versionNoticeTitle">发现新版本</strong>
+          <span id="versionNoticeText">刷新后使用最新界面。</span>
+        </div>
+        <button id="btnApplyUpdate" class="btn btn-primary" type="button">更新页面</button>
+      </section>
       <section id="authCard" class="card auth-card">
         <div class="card-title">登录</div>
         <div class="card-sub">用同一个账号在安卓和 Windows 登录，就能看到同一份清单。</div>
@@ -60,8 +67,35 @@
               <div class="card-title">活跃待办</div>
               <div class="card-sub">未完成任务会保留在这里，完成后自动进入当前账号归档。</div>
             </div>
+            <div class="pane-actions">
+              <button id="btnToggleArchive" class="btn btn-secondary btn-mini" type="button">归档中心</button>
+            </div>
           </div>
           <div id="todoList" class="todos"></div>
+          <section id="archivePanel" class="archive-panel hidden">
+            <div class="panel-head">
+              <div>
+                <div class="panel-title">归档中心</div>
+                <div class="card-sub">只显示当前账号已完成任务，可搜索并恢复为活跃待办。</div>
+              </div>
+              <button id="btnCloseArchive" class="btn btn-ghost btn-mini" type="button">收起</button>
+            </div>
+            <div class="archive-filters">
+              <input id="archiveQuery" type="text" placeholder="搜索标题或备注" />
+              <input id="archiveFrom" type="date" />
+              <input id="archiveTo" type="date" />
+              <select id="archiveUrgency">
+                <option value="">全部优先级</option>
+                <option value="0">不急</option>
+                <option value="1">普通</option>
+                <option value="2">紧急</option>
+                <option value="3">非常紧急</option>
+              </select>
+              <button id="btnArchiveSearch" class="btn btn-secondary" type="button">筛选</button>
+            </div>
+            <div id="archiveMsg" class="msg"></div>
+            <div id="archiveList" class="archive-list"></div>
+          </section>
           <section class="calendar-panel">
             <div class="panel-head">
               <div>
@@ -167,6 +201,19 @@
               <div id="aiSaveMsg" class="msg"></div>
             </div>
             <div class="record-filters">
+              <input id="recordQueryFilter" type="text" placeholder="搜索原文或摘要" />
+              <select id="recordSourceFilter">
+                <option value="">全部来源</option>
+                <option value="web">Web</option>
+                <option value="feishu">飞书</option>
+              </select>
+              <select id="recordStatusFilter">
+                <option value="">全部状态</option>
+                <option value="pending">待整理</option>
+                <option value="processing">整理中</option>
+                <option value="ready">已整理</option>
+                <option value="failed">整理失败</option>
+              </select>
               <select id="recordTypeFilter">
                 <option value="">全部类型</option>
                 <option value="task">任务</option>
@@ -181,7 +228,16 @@
               <select id="recordLinkedFilter">
                 <option value="">全部关联</option>
                 <option value="1">有关联任务</option>
+                <option value="0">无关联任务</option>
               </select>
+            </div>
+            <div class="record-bulk">
+              <label class="ai-draft-check">
+                <input id="recordSelectAll" type="checkbox" />
+                <span>全选当前结果</span>
+              </label>
+              <button id="btnRecordBulkDelete" class="btn btn-ghost btn-mini" type="button">清理选中</button>
+              <div id="recordBulkMsg" class="msg"></div>
             </div>
             <div id="recordList" class="record-list"></div>
           </section>

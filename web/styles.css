@@ -47,6 +47,19 @@ body{
 .top-actions{justify-content:flex-end}
 
 .wrap{max-width:1500px; margin:14px auto; padding:0 18px 56px}
+.version-notice{
+  margin-bottom:12px;
+  padding:12px 14px;
+  border:1px solid rgba(79,145,255,.62);
+  background:rgba(79,145,255,.13);
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.version-notice strong{display:block; font-size:14px}
+.version-notice span{display:block; color:var(--muted); font-size:12px; margin-top:2px}
 .card,.task-pane,.panel,.dialog-card,.calendar-panel{
   border:1px solid rgba(40,54,80,.82);
   background:linear-gradient(180deg,var(--panel),var(--panel2));
@@ -135,6 +148,33 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
 
 .todos{display:grid; gap:10px}
 .empty-state{padding:18px; border:1px dashed rgba(40,54,80,.8); border-radius:8px}
+.archive-panel{
+  display:grid;
+  gap:12px;
+  padding:14px;
+  border:1px solid rgba(40,54,80,.72);
+  border-radius:8px;
+  background:rgba(7,12,23,.34);
+}
+.archive-filters{
+  display:grid;
+  grid-template-columns:1.2fr .8fr .8fr .8fr auto;
+  gap:8px;
+}
+.archive-list{display:grid; gap:8px}
+.archive-item{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border:1px solid rgba(40,54,80,.72);
+  border-radius:8px;
+  background:rgba(8,13,24,.58);
+}
+.archive-item strong{font-size:14px}
+.archive-item p{margin:5px 0; color:var(--muted); font-size:12px}
+.archive-item span{color:rgba(154,167,189,.86); font-size:12px}
 .todo{
   border:1px solid rgba(40,54,80,.78);
   border-radius:8px;
@@ -210,16 +250,29 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
 .record-error{color:var(--danger) !important}
 .record-failed{border-color:rgba(255,90,115,.58); color:var(--danger)}
 .record-processing{border-color:rgba(244,201,93,.5); color:var(--warn)}
-.record-filters{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.record-filters{display:grid; grid-template-columns:1.2fr 1fr 1fr 1fr 1fr 1fr; gap:8px}
+.record-bulk{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
 .record-list{display:grid; gap:8px}
 .record-item{
   width:100%;
+  display:grid;
+  grid-template-columns:24px 1fr;
+  gap:8px;
+  align-items:start;
+  }
+.record-select{padding-top:2px}
+.record-select input{width:auto; min-height:auto}
+.record-open{
+  width:100%;
+  border:0;
+  background:transparent;
   color:var(--text);
   text-align:left;
+  padding:0;
   cursor:pointer;
 }
 .record-item strong{font-size:13px}
-.record-item span{color:var(--muted); font-size:12px}
+.record-item span,.record-open span{color:var(--muted); font-size:12px}
 .ai-draft{
   display:grid;
   gap:10px;
@@ -315,6 +368,11 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
       linear-gradient(180deg,#07100f,#0c111b 38%,#10131b);
   }
   .wrap{margin:12px auto; padding:0 8px 28px}
+  .version-notice{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:8px;
+  }
   .topbar{
     position:static;
     padding:10px 12px;
@@ -371,7 +429,8 @@ input:focus,select:focus,textarea:focus{border-color:rgba(56,212,176,.82); box-s
   .due-card{padding:10px; gap:8px}
   .due-presets{gap:6px}
   .notification-panel .card-sub{font-size:11px}
-  .record-filters{grid-template-columns:1fr}
+  .archive-filters,.record-filters{grid-template-columns:1fr}
+  .archive-item{grid-template-columns:1fr}
   .sub{grid-template-columns:28px 1fr; gap:8px}
   .sub .sub-edit,.sub .sub-del{grid-column:auto}
 }

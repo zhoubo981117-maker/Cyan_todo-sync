@@ -1421,6 +1421,7 @@ class Handler(BaseHTTPRequestHandler):
         self._set_cors()
         self._set_security_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -1463,7 +1464,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(raw)))
         if ext in (".html", ".css", ".js", ".webmanifest", ".svg"):
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         else:
             self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
@@ -1790,6 +1791,18 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/records":
                 filters = ["owner_user_id = ?", "deleted_at IS NULL"]
                 params: list[Any] = [user.id]
+                source = _clean_ai_string((query.get("source") or [""])[0], 32)
+                if source:
+                    filters.append("source = ?")
+                    params.append(source)
+                status = _clean_ai_string((query.get("status") or [""])[0], 32)
+                if status:
+                    filters.append("ai_status = ?")
+                    params.append(status)
+                q = _clean_ai_string((query.get("q") or [""])[0], 120)
+                if q:
+                    filters.append("(original_input LIKE ? OR summary LIKE ?)")
+                    params.extend([f"%{q}%", f"%{q}%"])
                 record_type = (query.get("type") or [""])[0]
                 if record_type:
                     filters.append("record_type = ?")
@@ -1803,9 +1816,16 @@ class Handler(BaseHTTPRequestHandler):
                     filters.append("tags_json LIKE ?")
                     params.append(f'%"{tag}"%')
                 linked = (query.get("linked") or [""])[0]
-                if linked in ("1", "true", "yes"):
+                has_todo = (query.get("hasTodo") or [""])[0]
+                linked_true = linked in ("1", "true", "yes") or has_todo in ("1", "true", "yes")
+                linked_false = linked in ("0", "false", "no") or has_todo in ("0", "false", "no")
+                if linked_true:
                     filters.append(
                         "EXISTS (SELECT 1 FROM todos t WHERE t.owner_user_id = records.owner_user_id AND t.source_record_id = records.id AND t.deleted_at IS NULL)"
+                    )
+                elif linked_false:
+                    filters.append(
+                        "NOT EXISTS (SELECT 1 FROM todos t WHERE t.owner_user_id = records.owner_user_id AND t.source_record_id = records.id AND t.deleted_at IS NULL)"
                     )
                 rows = DB.execute(
                     f"""
@@ -1818,6 +1838,46 @@ class Handler(BaseHTTPRequestHandler):
                     tuple(params),
                 ).fetchall()
                 self._send_json(*json_ok({"records": [serialize_record_row(DB, r) for r in rows]}))
+                return
+
+            if method == "POST" and path == "/api/records/bulk":
+                body, err = parse_json_body(self)
+                if err:
+                    self._send_json(*json_error(400, err))
+                    return
+                action = str(body.get("action", "")).strip().lower()
+                raw_ids = body.get("ids")
+                if action != "delete":
+                    self._send_json(*json_error(400, "unsupported bulk action"))
+                    return
+                if not isinstance(raw_ids, list):
+                    self._send_json(*json_error(400, "ids must be an array"))
+                    return
+                ids: list[int] = []
+                for item in raw_ids:
+                    try:
+                        rid = int(item)
+                    except (TypeError, ValueError):
+                        continue
+                    if rid > 0 and rid not in ids:
+                        ids.append(rid)
+                if not ids:
+                    self._send_json(*json_ok({"result": {"succeeded": 0, "failed": 0, "skipped": 0}}))
+                    return
+                now = _utc_now_iso()
+                succeeded = 0
+                for rid in ids:
+                    cur = DB.execute(
+                        """
+                        UPDATE records
+                        SET deleted_at = ?, updated_at = ?
+                        WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL
+                        """,
+                        (now, now, rid, user.id),
+                    )
+                    succeeded += int(cur.rowcount or 0)
+                skipped = len(ids) - succeeded
+                self._send_json(*json_ok({"result": {"succeeded": succeeded, "failed": 0, "skipped": skipped}}))
                 return
 
             if path.startswith("/api/records/"):
@@ -2009,8 +2069,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if method == "GET" and path == "/api/todos/archive":
+                filters = [
+                    "t.owner_user_id = ?",
+                    "t.deleted_at IS NULL",
+                    "t.archived_at IS NOT NULL",
+                ]
+                params: list[Any] = [user.id]
+                q = _clean_ai_string((query.get("q") or [""])[0], 120)
+                if q:
+                    filters.append("(t.title LIKE ? OR t.note LIKE ?)")
+                    params.extend([f"%{q}%", f"%{q}%"])
+                urgency_filter = (query.get("urgency") or [""])[0]
+                if urgency_filter != "":
+                    try:
+                        urgency_value = max(0, min(3, int(urgency_filter)))
+                    except ValueError:
+                        self._send_json(*json_error(400, "invalid urgency"))
+                        return
+                    filters.append("t.urgency = ?")
+                    params.append(urgency_value)
+                date_from = _clean_ai_string((query.get("from") or [""])[0], 40)
+                if date_from:
+                    filters.append("COALESCE(t.archived_at, t.done_at, '') >= ?")
+                    params.append(date_from)
+                date_to = _clean_ai_string((query.get("to") or [""])[0], 40)
+                if date_to:
+                    filters.append("COALESCE(t.archived_at, t.done_at, '') <= ?")
+                    params.append(date_to)
+                try:
+                    limit = max(1, min(200, int((query.get("limit") or ["200"])[0] or 200)))
+                    offset = max(0, int((query.get("offset") or ["0"])[0] or 0))
+                except ValueError:
+                    self._send_json(*json_error(400, "invalid pagination"))
+                    return
                 rows = DB.execute(
-                    """
+                    f"""
                     SELECT t.id, t.client_id, t.title, t.note, t.urgency, t.repeat_rule, t.reminder_minutes,
                            t.due_at, t.done, t.done_at, t.archived_at, t.created_at, t.updated_at, t.source_record_id,
                            r.summary AS source_record_summary,
@@ -2018,14 +2111,13 @@ class Handler(BaseHTTPRequestHandler):
                     FROM todos t
                     LEFT JOIN records r
                       ON r.id = t.source_record_id AND r.owner_user_id = t.owner_user_id
-                    WHERE t.owner_user_id = ?
-                      AND t.deleted_at IS NULL
-                      AND t.archived_at IS NOT NULL
+                    WHERE {' AND '.join(filters)}
                     ORDER BY
                       t.archived_at DESC,
                       t.updated_at DESC
+                    LIMIT ? OFFSET ?
                     """,
-                    (user.id,),
+                    (*params, limit, offset),
                 ).fetchall()
                 todo_ids = [int(r["id"]) for r in rows]
                 subtasks_by_todo: dict[int, list[dict[str, Any]]] = {tid: [] for tid in todo_ids}
@@ -2083,6 +2175,11 @@ class Handler(BaseHTTPRequestHandler):
                                 else None
                             ),
                             "subtasks": subtasks_by_todo.get(tid, []),
+                            "sourceSummary": r["source_record_summary"] or "",
+                            "subtaskSummary": {
+                                "total": len(subtasks_by_todo.get(tid, [])),
+                                "done": sum(1 for s in subtasks_by_todo.get(tid, []) if s["done"]),
+                            },
                         }
                     )
                 self._send_json(*json_ok({"todos": todos, "stats": _todo_stats(DB, user.id)}))
@@ -2216,7 +2313,7 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     todo_id = int(todo_id_str)
                     existing_todo = DB.execute(
-                        "SELECT done FROM todos WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL",
+                        "SELECT done, archived_at FROM todos WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL",
                         (todo_id, user.id),
                     ).fetchone()
                     if not existing_todo:
@@ -2292,6 +2389,47 @@ class Handler(BaseHTTPRequestHandler):
                             )
                             self._send_json(*json_ok({"updatedAt": now}))
                             return
+
+                    if len(parts) == 4 and parts[3] == "restore" and method == "POST":
+                        if existing_todo["archived_at"] is None:
+                            self._send_json(*json_error(400, "todo is not archived"))
+                            return
+                        now = _utc_now_iso()
+                        DB.execute(
+                            """
+                            UPDATE todos
+                            SET done = 0, done_at = NULL, archived_at = NULL, updated_at = ?
+                            WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL
+                            """,
+                            (now, todo_id, user.id),
+                        )
+                        row = DB.execute(
+                            """
+                            SELECT id, client_id, title, note, urgency, repeat_rule, reminder_minutes,
+                                   due_at, done, done_at, archived_at, created_at, updated_at, source_record_id
+                            FROM todos
+                            WHERE id = ? AND owner_user_id = ?
+                            """,
+                            (todo_id, user.id),
+                        ).fetchone()
+                        todo = {
+                            "id": int(row["id"]),
+                            "clientId": row["client_id"],
+                            "title": row["title"],
+                            "note": row["note"],
+                            "urgency": int(row["urgency"]),
+                            "repeatRule": row["repeat_rule"],
+                            "reminderMinutes": row["reminder_minutes"],
+                            "dueAt": row["due_at"],
+                            "done": bool(row["done"]),
+                            "doneAt": row["done_at"],
+                            "archivedAt": row["archived_at"],
+                            "createdAt": row["created_at"],
+                            "updatedAt": row["updated_at"],
+                            "sourceRecord": None,
+                        }
+                        self._send_json(*json_ok({"todo": todo, "stats": _todo_stats(DB, user.id)}))
+                        return
 
                     if len(parts) == 4 and parts[3] == "subtasks" and method == "POST":
                         body, err = parse_json_body(self)

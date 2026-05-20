@@ -51,11 +51,17 @@ const API = {
   },
   listRecords(filters = {}) {
     const params = new URLSearchParams();
+    if (filters.q) params.set("q", filters.q);
+    if (filters.source) params.set("source", filters.source);
+    if (filters.status) params.set("status", filters.status);
     if (filters.type) params.set("type", filters.type);
     if (filters.tag) params.set("tag", filters.tag);
-    if (filters.linked) params.set("linked", filters.linked);
+    if (filters.linked !== undefined && filters.linked !== "") params.set("hasTodo", filters.linked);
     const qs = params.toString();
     return this.request(`/api/records${qs ? `?${qs}` : ""}`, { method: "GET" });
+  },
+  bulkRecords(action, ids) {
+    return this.request("/api/records/bulk", { method: "POST", body: JSON.stringify({ action, ids }) });
   },
   patchRecord(id, patch) {
     return this.request(`/api/records/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -77,6 +83,18 @@ const API = {
   },
   listTodos() {
     return this.request("/api/todos", { method: "GET" });
+  },
+  listArchive(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.q) params.set("q", filters.q);
+    if (filters.from) params.set("from", filters.from);
+    if (filters.to) params.set("to", filters.to);
+    if (filters.urgency !== undefined && filters.urgency !== "") params.set("urgency", filters.urgency);
+    const qs = params.toString();
+    return this.request(`/api/todos/archive${qs ? `?${qs}` : ""}`, { method: "GET" });
+  },
+  restoreTodo(id) {
+    return this.request(`/api/todos/${id}/restore`, { method: "POST", body: JSON.stringify({}) });
   },
   addTodo(todo) {
     return this.request("/api/todos", { method: "POST", body: JSON.stringify(todo) });
@@ -110,6 +128,10 @@ const els = {
   btnLogout: document.getElementById("btnLogout"),
   btnRefresh: document.getElementById("btnRefresh"),
   btnSecurity: document.getElementById("btnSecurity"),
+  versionNotice: document.getElementById("versionNotice"),
+  versionNoticeTitle: document.getElementById("versionNoticeTitle"),
+  versionNoticeText: document.getElementById("versionNoticeText"),
+  btnApplyUpdate: document.getElementById("btnApplyUpdate"),
   whoami: document.getElementById("whoami"),
   taskStats: document.getElementById("taskStats"),
   versionInfo: document.getElementById("versionInfo"),
@@ -150,6 +172,16 @@ const els = {
   dueSummary: document.getElementById("dueSummary"),
   btnAddTodo: document.getElementById("btnAddTodo"),
   appMsg: document.getElementById("appMsg"),
+  btnToggleArchive: document.getElementById("btnToggleArchive"),
+  btnCloseArchive: document.getElementById("btnCloseArchive"),
+  archivePanel: document.getElementById("archivePanel"),
+  archiveQuery: document.getElementById("archiveQuery"),
+  archiveFrom: document.getElementById("archiveFrom"),
+  archiveTo: document.getElementById("archiveTo"),
+  archiveUrgency: document.getElementById("archiveUrgency"),
+  btnArchiveSearch: document.getElementById("btnArchiveSearch"),
+  archiveMsg: document.getElementById("archiveMsg"),
+  archiveList: document.getElementById("archiveList"),
   aiInput: document.getElementById("aiInput"),
   btnAiGenerate: document.getElementById("btnAiGenerate"),
   btnAiClear: document.getElementById("btnAiClear"),
@@ -160,9 +192,15 @@ const els = {
   aiSaveMsg: document.getElementById("aiSaveMsg"),
   recordActive: document.getElementById("recordActive"),
   recordList: document.getElementById("recordList"),
+  recordQueryFilter: document.getElementById("recordQueryFilter"),
+  recordSourceFilter: document.getElementById("recordSourceFilter"),
+  recordStatusFilter: document.getElementById("recordStatusFilter"),
   recordTypeFilter: document.getElementById("recordTypeFilter"),
   recordTagFilter: document.getElementById("recordTagFilter"),
   recordLinkedFilter: document.getElementById("recordLinkedFilter"),
+  recordSelectAll: document.getElementById("recordSelectAll"),
+  btnRecordBulkDelete: document.getElementById("btnRecordBulkDelete"),
+  recordBulkMsg: document.getElementById("recordBulkMsg"),
   btnDailyPlan: document.getElementById("btnDailyPlan"),
   dailyPlanMsg: document.getElementById("dailyPlanMsg"),
   dailyPlanResult: document.getElementById("dailyPlanResult"),
@@ -175,10 +213,12 @@ const els = {
 
 let currentTodos = [];
 let todoStats = { active: 0, archived: 0, total: 0 };
+let archivedTodos = [];
 let aiDrafts = [];
 let currentRecords = [];
 let activeRecord = null;
 const openTodoIds = new Set();
+const selectedRecordIds = new Set();
 const notifiedTodoIds = new Set();
 let reminderTimer = null;
 let calendarExpanded = false;
@@ -359,21 +399,46 @@ async function loadVersionInfo() {
   try {
     const data = await API.version();
     const short = data.version && data.version.short ? data.version.short : "unknown";
+    const source = data.version && data.version.source ? data.version.source : "unknown";
     els.versionInfo.textContent = `版本：${short}`;
+    els.versionInfo.title = `后端版本来源：${source}`;
     const last = localStorage.getItem("todo_app_version");
-    if (last && last !== short && "caches" in window) {
-      const reloadKey = `todo_reloaded_for_${short}`;
-      localStorage.setItem("todo_app_version", short);
-      await caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
-      if (!sessionStorage.getItem(reloadKey)) {
-        sessionStorage.setItem(reloadKey, "1");
-        location.reload();
-      }
-      return;
+    if (last && last !== short) {
+      showVersionNotice("发现新版本", `当前浏览器记录的是 ${last}，服务器已是 ${short}。`);
+    } else {
+      hideVersionNotice();
     }
     localStorage.setItem("todo_app_version", short);
   } catch {
     els.versionInfo.textContent = "版本：未知";
+    showVersionNotice("版本检测失败", "后端版本暂时不可确认，待办和收件箱仍可继续加载。", false);
+  }
+}
+
+function showVersionNotice(title, text, canUpdate = true) {
+  els.versionNoticeTitle.textContent = title;
+  els.versionNoticeText.textContent = text;
+  els.btnApplyUpdate.classList.toggle("hidden", !canUpdate);
+  els.versionNotice.classList.remove("hidden");
+}
+
+function hideVersionNotice() {
+  els.versionNotice.classList.add("hidden");
+}
+
+async function applyPageUpdate() {
+  els.btnApplyUpdate.disabled = true;
+  els.versionNoticeText.textContent = "正在清理旧缓存并刷新...";
+  try {
+    if ("caches" in window) {
+      await caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+    }
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
+    }
+  } finally {
+    location.reload();
   }
 }
 
@@ -548,6 +613,7 @@ async function refresh() {
   currentTodos = data.todos || [];
   todoStats = data.stats || { active: currentTodos.length, archived: 0, total: currentTodos.length };
   renderTodos();
+  if (!els.archivePanel.classList.contains("hidden")) await refreshArchive();
   renderCalendar();
   await refreshRecords();
   scheduleReminderCheck();
@@ -702,6 +768,60 @@ function renderTodos() {
   }
 }
 
+function archiveFilters() {
+  return {
+    q: (els.archiveQuery.value || "").trim(),
+    from: els.archiveFrom.value || "",
+    to: els.archiveTo.value || "",
+    urgency: els.archiveUrgency.value,
+  };
+}
+
+async function refreshArchive() {
+  setMsg(els.archiveMsg, "加载归档...");
+  const data = await API.listArchive(archiveFilters());
+  archivedTodos = data.todos || [];
+  todoStats = data.stats || todoStats;
+  updateTaskStats();
+  renderArchive();
+  setMsg(els.archiveMsg, archivedTodos.length ? `已加载 ${archivedTodos.length} 条归档` : "暂无匹配归档");
+}
+
+function renderArchive() {
+  els.archiveList.innerHTML = "";
+  if (!archivedTodos.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "暂无归档任务";
+    els.archiveList.appendChild(empty);
+    return;
+  }
+  for (const todo of archivedTodos) {
+    const subtasks = todo.subtaskSummary || {};
+    const source = todo.sourceRecord ? (todo.sourceRecord.deleted ? "随记已删除" : (todo.sourceRecord.summary || `#${todo.sourceRecord.id}`)) : "无来源";
+    const card = document.createElement("article");
+    card.className = "archive-item";
+    card.innerHTML = `
+      <div>
+        <strong>${escapeHtml(todo.title)}</strong>
+        <p>${escapeHtml(todo.note || "无备注")}</p>
+        <span>${urgencyLabel(todo.urgency)} · 完成 ${fmtDue(todo.doneAt || todo.archivedAt)} · 子任务 ${subtasks.done || 0}/${subtasks.total || 0} · 来源：${escapeHtml(source)}</span>
+      </div>
+      <button class="btn btn-secondary btn-mini archive-restore" type="button">恢复</button>
+    `;
+    card.querySelector(".archive-restore").addEventListener("click", async () => {
+      try {
+        await API.restoreTodo(todo.id);
+        setMsg(els.archiveMsg, "已恢复到活跃待办");
+        await refresh();
+      } catch (e) {
+        setMsg(els.archiveMsg, e.message, "error");
+      }
+    });
+    els.archiveList.appendChild(card);
+  }
+}
+
 function renderAiDrafts() {
   els.aiDraftList.innerHTML = "";
   els.aiSaveRow.classList.toggle("hidden", aiDrafts.length === 0);
@@ -814,6 +934,7 @@ function renderActiveRecord() {
 
 function renderRecords() {
   els.recordList.innerHTML = "";
+  els.recordSelectAll.checked = currentRecords.length > 0 && currentRecords.every((record) => selectedRecordIds.has(record.id));
   if (!currentRecords.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
@@ -822,16 +943,25 @@ function renderRecords() {
     return;
   }
   for (const record of currentRecords) {
-    const card = document.createElement("button");
-    card.type = "button";
+    const card = document.createElement("article");
     card.className = "record-item";
     const sourceLabel = recordSourceLabels[record.source] || record.source || "Web";
     const statusLabel = recordStatusLabels[record.aiStatus] || record.aiStatus || "待整理";
     card.innerHTML = `
-      <strong>${escapeHtml(record.summary || record.originalInput || "未命名随记")}</strong>
-      <span>${escapeHtml(sourceLabel)} · ${escapeHtml(statusLabel)} · ${recordTypeLabels[record.type] || "其他"} · ${sentimentLabels[record.sentiment] || "中性"} · ${(record.tags || []).join(" / ") || "无标签"}</span>
+      <label class="record-select">
+        <input type="checkbox" ${selectedRecordIds.has(record.id) ? "checked" : ""} />
+      </label>
+      <button class="record-open" type="button">
+        <strong>${escapeHtml(record.summary || record.originalInput || "未命名随记")}</strong>
+        <span>${escapeHtml(sourceLabel)} · ${escapeHtml(statusLabel)} · ${recordTypeLabels[record.type] || "其他"} · ${sentimentLabels[record.sentiment] || "中性"} · ${(record.tags || []).join(" / ") || "无标签"}</span>
+      </button>
     `;
-    card.addEventListener("click", () => {
+    card.querySelector(".record-select input").addEventListener("change", (ev) => {
+      if (ev.target.checked) selectedRecordIds.add(record.id);
+      else selectedRecordIds.delete(record.id);
+      els.recordSelectAll.checked = currentRecords.length > 0 && currentRecords.every((item) => selectedRecordIds.has(item.id));
+    });
+    card.querySelector(".record-open").addEventListener("click", () => {
       activeRecord = record;
       aiDrafts = normalizeDrafts(record.aiItems || []);
       renderAiDrafts();
@@ -844,16 +974,43 @@ function renderRecords() {
 async function refreshRecords() {
   if (!els.recordList) return;
   const data = await API.listRecords({
+    q: (els.recordQueryFilter.value || "").trim(),
+    source: els.recordSourceFilter.value,
+    status: els.recordStatusFilter.value,
     type: els.recordTypeFilter.value,
     tag: (els.recordTagFilter.value || "").trim(),
     linked: els.recordLinkedFilter.value,
   });
   currentRecords = data.records || [];
+  for (const id of Array.from(selectedRecordIds)) {
+    if (!currentRecords.some((record) => record.id === id)) selectedRecordIds.delete(id);
+  }
   if (activeRecord) {
     activeRecord = currentRecords.find((x) => x.id === activeRecord.id) || activeRecord;
   }
   renderRecords();
   renderActiveRecord();
+}
+
+async function bulkDeleteRecords() {
+  const ids = Array.from(selectedRecordIds);
+  if (!ids.length) {
+    setMsg(els.recordBulkMsg, "先选择要清理的随记", "error");
+    return;
+  }
+  if (!confirm(`清理选中的 ${ids.length} 条随记？关联任务会保留。`)) return;
+  try {
+    const data = await API.bulkRecords("delete", ids);
+    selectedRecordIds.clear();
+    activeRecord = null;
+    aiDrafts = [];
+    renderAiDrafts();
+    await refreshRecords();
+    const result = data.result || {};
+    setMsg(els.recordBulkMsg, `成功 ${result.succeeded || 0}，跳过 ${result.skipped || 0}，失败 ${result.failed || 0}`);
+  } catch (e) {
+    setMsg(els.recordBulkMsg, e.message, "error");
+  }
 }
 
 function editActiveRecord() {
@@ -1177,6 +1334,20 @@ document.querySelectorAll(".due-preset").forEach((button) => {
   button.addEventListener("click", () => applyDuePreset(Number(button.dataset.offset || "1")));
 });
 document.querySelector(".due-clear").addEventListener("click", clearDue);
+els.btnApplyUpdate.addEventListener("click", () => applyPageUpdate());
+els.btnToggleArchive.addEventListener("click", async () => {
+  els.archivePanel.classList.toggle("hidden");
+  if (!els.archivePanel.classList.contains("hidden")) {
+    await refreshArchive().catch((e) => setMsg(els.archiveMsg, e.message, "error"));
+  }
+});
+els.btnCloseArchive.addEventListener("click", () => els.archivePanel.classList.add("hidden"));
+els.btnArchiveSearch.addEventListener("click", () => refreshArchive().catch((e) => setMsg(els.archiveMsg, e.message, "error")));
+els.archiveQuery.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter" || ev.isComposing) return;
+  ev.preventDefault();
+  els.btnArchiveSearch.click();
+});
 els.btnToggleCalendar.addEventListener("click", () => {
   calendarExpanded = !calendarExpanded;
   renderCalendar();
@@ -1192,9 +1363,23 @@ els.btnAiClear.addEventListener("click", () => {
   setMsg(els.aiSaveMsg, "");
 });
 els.btnAiSave.addEventListener("click", () => saveAiDrafts());
+els.recordQueryFilter.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter" || ev.isComposing) return;
+  ev.preventDefault();
+  refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error"));
+});
+els.recordQueryFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
+els.recordSourceFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
+els.recordStatusFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
 els.recordTypeFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
 els.recordLinkedFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
 els.recordTagFilter.addEventListener("change", () => refreshRecords().catch((e) => setMsg(els.aiMsg, e.message, "error")));
+els.recordSelectAll.addEventListener("change", () => {
+  if (els.recordSelectAll.checked) currentRecords.forEach((record) => selectedRecordIds.add(record.id));
+  else currentRecords.forEach((record) => selectedRecordIds.delete(record.id));
+  renderRecords();
+});
+els.btnRecordBulkDelete.addEventListener("click", () => bulkDeleteRecords());
 els.btnDailyPlan.addEventListener("click", () => generateDailyPlan());
 
 els.btnAddTodo.addEventListener("click", async () => {
@@ -1250,5 +1435,14 @@ bootstrap();
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").then((registration) => {
     registration.update().catch(() => {});
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) {
+          showVersionNotice("页面资源已更新", "刷新后使用最新界面。");
+        }
+      });
+    });
   }).catch(() => {});
 }

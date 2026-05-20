@@ -4,7 +4,7 @@
 名词可以保留英文。除非用户明确要求英文，否则归档型内容必须写中文。
 
 如需了解当前功能使用的技术、项目结构、Shell 命令和其他关键上下文，
-优先读取当前 Spec Kit 计划文件：`specs/002-feishu-inbox-ai-organize/plan.md`。
+优先读取当前 Spec Kit 计划文件：`specs/003-release-archive-inbox/plan.md`。
 
 当用户要求推送到 GitHub，而本机 GitHub 网络连接不稳定导致 `git push` / `git fetch`
 失败时，不要把后续操作交给用户手动执行。应由 Codex 配置或更新本机定时重试任务，
