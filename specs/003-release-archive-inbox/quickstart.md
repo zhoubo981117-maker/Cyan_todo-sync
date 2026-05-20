@@ -64,3 +64,11 @@ curl https://www.cyancola.xin/api/version
 ```
 
 确认返回版本与页面显示一致。若 GitHub 推送或 fetch 网络不稳定，按项目约定由 Codex 配置或更新本机定时重试任务，不把后续推送交给用户手动执行。
+
+### 2026-05-20 线上验证记录
+
+- GitHub `main` 已推送并同步服务器。
+- 服务器 `/opt/Cyan_todo-sync` 当前提交：`ebd8e55`。
+- 服务器本机 `http://127.0.0.1:8787/api/version` 返回 `ebd8e55`。
+- 服务器侧访问 `https://www.cyancola.xin/api/version` 返回 `ebd8e55`，首页 HTML 包含 `versionNotice`、`归档中心`、`recordSourceFilter`。
+- 本机 Windows 访问 `https://www.cyancola.xin/api/version` 出现 TLS connection reset，判断为本机到公网 HTTPS 链路问题；服务器侧 HTTPS 验证通过。

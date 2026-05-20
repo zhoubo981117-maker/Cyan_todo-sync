@@ -102,7 +102,7 @@
 - [x] T042 运行 `python -m unittest tests/test_records.py tests/test_feishu.py tests/test_feishu_client.py tests/test_ai_organizer.py tests/test_release.py`
 - [x] T043 运行 `node --check web\app.js`
 - [x] T044 使用浏览器验收桌面和移动端：版本提示、归档中心、收件箱筛选详情均不遮挡、不重叠
-- [ ] T045 若用户确认发布，推送 GitHub 并同步服务器；如网络不稳定，按项目约定配置自动重试任务直到成功或远端已包含目标提交
+- [x] T045 若用户确认发布，推送 GitHub 并同步服务器；如网络不稳定，按项目约定配置自动重试任务直到成功或远端已包含目标提交
 
 ## 依赖与执行顺序
 
