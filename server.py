@@ -2870,6 +2870,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+# Vercel's @vercel/python runtime imports this module and looks for a module
+# level ``handler`` (BaseHTTPRequestHandler subclass) or ``app``. Expose one.
+handler = Handler
+
+
 def main() -> None:
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
