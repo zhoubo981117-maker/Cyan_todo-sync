@@ -1,1 +1,2 @@
 lark-oapi>=1.4.21
+psycopg[binary]>=3.2

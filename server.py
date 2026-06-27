@@ -30,8 +30,20 @@ WEB_DIR = ROOT / "web"
 DB_PATH = DATA_DIR / "app.db"
 SECRET_PATH = DATA_DIR / "secret.key"
 
+# When a Postgres URL is present (e.g. injected by Vercel/Neon) the app runs
+# fully stateless on a read-only filesystem: data goes to Postgres and the
+# signing secret is stored in the DB instead of a local file. Otherwise it
+# falls back to the original local SQLite + file behaviour for dev.
+POSTGRES_URL = (
+    os.environ.get("POSTGRES_URL")
+    or os.environ.get("DATABASE_URL")
+    or ""
+).strip()
+USE_POSTGRES = bool(POSTGRES_URL)
+
 HOST = os.environ.get("TODO_HOST", "0.0.0.0")
-PORT = int(os.environ.get("TODO_PORT", "8787"))
+# Honour the platform-provided PORT (Vercel/Render/Railway) before TODO_PORT.
+PORT = int(os.environ.get("PORT") or os.environ.get("TODO_PORT", "8787"))
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get("TODO_ALLOWED_ORIGINS", "").split(",")
@@ -136,6 +148,15 @@ def _next_due_at(due_at: Optional[str], rule: str) -> Optional[str]:
 
 
 def load_or_create_secret() -> bytes:
+    # 1) Explicit override always wins (lets you pin it across redeploys).
+    env_secret = os.environ.get("TODO_SIGNING_SECRET", "").strip()
+    if env_secret:
+        return env_secret.encode("utf-8")
+    # 2) Postgres mode: no writable FS — persist the secret in the DB so
+    #    sessions survive cold starts without any manual env var.
+    if USE_POSTGRES:
+        return _db_load_or_create_secret()
+    # 3) Local/dev: keep the original file-backed behaviour.
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if SECRET_PATH.exists():
         return SECRET_PATH.read_bytes()
@@ -144,7 +165,24 @@ def load_or_create_secret() -> bytes:
     return secret
 
 
-SIGNING_SECRET = load_or_create_secret()
+def _db_load_or_create_secret() -> bytes:
+    row = DB.execute(
+        "SELECT v FROM app_kv WHERE k = ?", ("signing_secret",)
+    ).fetchone()
+    if row and row["v"]:
+        return bytes(row["v"])
+    secret = secrets.token_bytes(32)
+    try:
+        DB.execute(
+            "INSERT INTO app_kv(k, v) VALUES (?, ?)", ("signing_secret", secret)
+        )
+        return secret
+    except sqlite3.IntegrityError:
+        # Another cold start inserted it first — read theirs back.
+        row = DB.execute(
+            "SELECT v FROM app_kv WHERE k = ?", ("signing_secret",)
+        ).fetchone()
+        return bytes(row["v"]) if row and row["v"] else secret
 
 
 def sign_token(payload: dict[str, Any]) -> str:
@@ -279,7 +317,11 @@ def _recent_password_reset_request(user_id: int, now: datetime) -> Optional[int]
     return remaining if remaining > 0 else None
 
 
-def open_db() -> sqlite3.Connection:
+def open_db():
+    if USE_POSTGRES:
+        from pg_compat import PgConnection
+
+        return PgConnection(POSTGRES_URL)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -290,6 +332,12 @@ def open_db() -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS app_kv (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          k TEXT NOT NULL UNIQUE,
+          v BLOB NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           email TEXT NOT NULL UNIQUE,
@@ -442,6 +490,10 @@ def migrate_db(conn: sqlite3.Connection) -> None:
 
 
 migrate_db(DB)
+
+# Loaded after the DB exists so the Postgres path can persist the secret
+# in app_kv (no writable filesystem on serverless).
+SIGNING_SECRET = load_or_create_secret()
 
 
 def json_error(code: int, message: str) -> tuple[int, dict[str, Any]]:
