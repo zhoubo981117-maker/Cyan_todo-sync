@@ -31,4 +31,6 @@ jobs:
         run: python -c "import server; print('import ok')"
 
       - name: Run tests
-        run: pytest -q
+        # 用 python -m pytest（而非裸 pytest）以把仓库根加入 sys.path，
+        # 否则 tests 内的 `import server` 会 ModuleNotFoundError。
+        run: python -m pytest -q
