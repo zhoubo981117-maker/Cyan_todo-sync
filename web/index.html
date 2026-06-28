@@ -7,12 +7,8 @@
     <title>随记代办同步</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap"
-      rel="stylesheet"
-    />
+    <!-- 字体走系统栈（微软雅黑/苹方/Segoe UI/Georgia）：服务端 CSP 为 style-src 'self'，
+         外部 Google Fonts 本就会被拦截；系统字体即时加载且国内可用。 -->
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>

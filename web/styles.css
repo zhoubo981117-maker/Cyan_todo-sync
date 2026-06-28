@@ -41,7 +41,7 @@
 }
 
 *{box-sizing:border-box}
-html,body{min-height:100%}
+html,body{min-height:100%; overflow-x:hidden}   /* 防止窄屏横向滚动 */
 body{
   margin:0;
   font-family:var(--sans);
@@ -252,7 +252,7 @@ input:focus,select:focus,textarea:focus{
   background:transparent;
 }
 .todo:first-child{border-top:0}
-.todo-main{display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:start}
+.todo-main{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:14px; align-items:start}
 .todo-body{min-width:0}
 .todo-top{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
 .todo-title{
@@ -324,7 +324,7 @@ input:focus,select:focus,textarea:focus{
 .calendar-panel{padding:20px}
 .calendar-grid{
   display:grid;
-  grid-template-columns:repeat(7,1fr);
+  grid-template-columns:repeat(7,minmax(0,1fr));  /* minmax(0,..) 防止列被内容撑破 */
   margin-top:14px;
   border-top:1px solid var(--ink);
   border-left:1px solid var(--ink);
@@ -407,10 +407,17 @@ input:focus,select:focus,textarea:focus{
 
 /* ---------- Responsive ---------------------------------------------------- */
 @media (max-width:1080px){
-  .app-shell{grid-template-columns:1fr}
+  .app-shell{grid-template-columns:minmax(0,1fr)}
   .side-pane{position:static}
   .task-pane{min-height:0}
 }
+
+/* grid/flex 子项默认 min-width:auto 会被内容撑破 → 显式归零，杜绝横向溢出 */
+.app-shell>*,.task-pane>*,.side-pane>*{min-width:0}
+.task-pane,.side-pane,.panel,.calendar-panel,.archive-panel,.calendar-grid{min-width:0}
+.todos,.todo,.todo-main,.todo-body,.todo-top{min-width:0}
+.todo-title{white-space:normal; overflow-wrap:anywhere}
+.todo-note,.todo-meta,.card-sub{overflow-wrap:anywhere}
 @media (max-width:720px){
   .topbar{grid-template-columns:1fr; gap:10px; padding:14px 16px}
   .top-status,.top-actions{justify-content:flex-start}
@@ -418,4 +425,36 @@ input:focus,select:focus,textarea:focus{
   .task-pane,.panel{padding:18px}
   .auth-card{padding:30px 22px}
   .grid2,.auth-card .row{grid-template-columns:1fr}
+}
+
+/* 手机窄屏（≈320–480px）：消除横向溢出，密集组件单列堆叠 */
+@media (max-width:480px){
+  .topbar{padding:12px 14px; gap:8px}
+  .top-status{justify-content:flex-start; gap:6px}
+  /* 长邮箱账号 pill 不再 nowrap 撑破宽度 */
+  .stats-pill{white-space:normal; overflow-wrap:anywhere; width:100%; text-align:left}
+  .top-actions{flex-wrap:wrap}
+
+  .wrap{padding:0 12px 48px}
+  .task-pane,.panel,.archive-panel,.calendar-panel{padding:14px}
+  .card-title{font-size:21px}
+  .panel-title{font-size:18px}
+
+  /* 面板头纵向堆叠，右侧动作不再被切掉 */
+  .pane-head,.panel-head{flex-direction:column; align-items:flex-start; gap:8px}
+  .pane-actions,.calendar-actions{justify-content:flex-start; width:100%}
+
+  /* 待办：操作按钮换到正文下一行，主行不被挤压 */
+  .todo-main{grid-template-columns:auto minmax(0,1fr)}
+  .todo-actions{grid-column:1 / -1; justify-content:flex-start; margin-top:6px; margin-left:36px}
+
+  /* 日历格更紧凑，7 列稳定不溢出 */
+  .calendar-day{min-height:54px; padding:5px; gap:3px}
+  .calendar-day>span{font-size:12px}
+  .calendar-week{padding:6px 1px; letter-spacing:.02em; font-size:10px}
+
+  /* 筛选器整列铺满，避免被截断 */
+  .record-filters input,.record-filters select,
+  .archive-filters input,.archive-filters select{flex:1 1 100%}
+  .subtasks{margin-left:0}
 }
