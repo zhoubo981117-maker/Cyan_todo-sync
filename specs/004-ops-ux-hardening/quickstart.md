@@ -39,7 +39,7 @@ curl -s http://localhost:8787/sw.js | head -2 # CACHE 名含 abc1234，而非 __
 ## US3 签名密钥固化
 
 ```bash
-pytest tests/test_secret.py -q
+python -m pytest tests/test_secret.py -q
 ```
 
 判定（SC-004）：`TODO_SIGNING_SECRET` 设置时，签名密钥等于该值且优先于 DB/文件；未设置时维持原行为。
@@ -50,7 +50,7 @@ pytest tests/test_secret.py -q
 # 本地等价于 CI 的核心步骤
 python -m py_compile server.py pg_compat.py
 TODO_DATA_DIR=/tmp/cyan-verify python -c "import server; print('import ok')"
-pytest -q
+python -m pytest -q
 ```
 
 判定（SC-005）：以上全绿即代表 CI 应通过；故意改坏一个测试应让 `pytest` 失败。CI 在 PR 与 push main 时自动运行同样步骤。
