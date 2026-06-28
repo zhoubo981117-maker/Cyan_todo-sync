@@ -67,6 +67,14 @@ curl http://127.0.0.1:8787/api/version
 
 如果网页仍显示旧界面，先看顶部版本状态。浏览器记录到旧版本或 Service Worker 发现新资源时，页面会显示“发现新版本”，点击“更新页面”会清理旧缓存并刷新。若服务器更新 timer 日志出现 `Working tree is dirty`，说明服务器工作区有未提交或换行符差异，自动更新会拒绝覆盖；应先确认差异来源，再把服务器重置到可信的 `origin/main` 或清理无关本地改动后重新运行更新服务。
 
+## Vercel / 云部署（Postgres）
+
+在 Vercel（或其它 serverless 平台）部署时，文件系统只读、实例无状态，需要外部数据库与稳定密钥：
+
+- **`POSTGRES_URL`**：存在即切换为 Postgres 模式（`pg_compat.py` 适配，兼容 Vercel Postgres / Neon）。在 Vercel 项目 `Storage → Create Database → Postgres` 后会自动注入，无需手填。未设置时回退本地 SQLite（`TODO_DATA_DIR`）。
+- **`TODO_SIGNING_SECRET`**（**云部署强烈建议配置**）：登录令牌的签名密钥，优先级最高（高于数据库与本地文件）。设置为任意高熵随机串（例如 `python -c "import secrets;print(secrets.token_hex(32))"`）。配置后，**即使清空或更换数据库，已登录用户也不会掉登录**。不配置时：Postgres 模式会自动生成并持久化到 `app_kv` 表，本地模式持久化到 `secret.key` 文件。
+- **版本号与更新提示**：版本来源优先级为 `TODO_APP_VERSION` → `VERCEL_GIT_COMMIT_SHA` → 本地 `git` → `unknown`。Vercel 默认在运行时注入 `VERCEL_GIT_COMMIT_SHA`，因此**无需任何配置**，版本徽标即可显示真实 commit，`/api/version` 与 `sw.js` 缓存名也会随每次部署变化，从而正常触发“发现新版本 → 更新页面”并自动刷新缓存。
+
 ## 密码重置邮件
 
 忘记密码的重置链接在 API 层可以直接使用。若要真正发送邮件，需要为 `todo-sync` 服务配置 SMTP 环境变量：

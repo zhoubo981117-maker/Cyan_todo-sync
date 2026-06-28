@@ -86,6 +86,13 @@ def _git_version() -> dict[str, str]:
     env_version = os.environ.get("TODO_APP_VERSION", "").strip()
     if env_version:
         return {"commit": env_version[:40], "short": env_version[:7], "source": "env"}
+    # Vercel injects the commit SHA at build & runtime. Use it when present so
+    # the version badge, the /api/version update check and the sw.js cache name
+    # all reflect the real deploy instead of a constant "unknown" (which would
+    # otherwise leave users stuck on a cached old UI).
+    vercel_sha = os.environ.get("VERCEL_GIT_COMMIT_SHA", "").strip()
+    if vercel_sha:
+        return {"commit": vercel_sha[:40], "short": vercel_sha[:7], "source": "vercel"}
     try:
         commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
